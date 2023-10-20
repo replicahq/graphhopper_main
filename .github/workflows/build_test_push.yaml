@@ -1,0 +1,106 @@
+name: CI
+on: [push]
+jobs:
+    unit-tests:
+        name: "Build test image and run unit tests"
+        runs-on: ubuntu-latest
+        env:
+            PROJECT_ID: model-159019
+        steps:
+
+            # ---------------------
+            # Common steps that we repeat between workflows.
+            # I couldn't find an equivalent of CircleCI's templates; can we consolidate by turning this into an action?
+            - name: Code Checkout
+              uses: actions/checkout@v2
+
+            - name: Sub modules checkout
+              env:
+                  SSH_KEY_FOR_SUBMODULE: ${{secrets.SUBMODULE_GITHUB_KEY}}
+                #the step below set the ssh key for the run
+              run: |
+                  mkdir -p /home/runner/.ssh && touch /home/runner/.ssh/id_rsa && echo "$SSH_KEY_FOR_SUBMODULE" > $HOME/.ssh/id_rsa && chmod 600 $HOME/.ssh/id_rsa &&  git submodule sync && git submodule --quiet update --init && echo `git rev-parse --short=8 HEAD ` > TAG.txt
+
+            - name: Auth GCP
+              id: 'auth'
+              uses: 'google-github-actions/auth@v1'
+              with:
+                  credentials_json: '${{ secrets.GOOGLE_CREDENTIALS }}'
+                  create_credentials_file: true
+
+            - name: Login to GCP
+                # Setup gcloud CLI
+              uses: google-github-actions/setup-gcloud@v1
+              with:
+                  project_id: ${{ env.PROJECT_ID }}
+                  service_account_key: ${{ secrets.GOOGLE_CREDENTIALS }}
+                  version: "410.0.0"
+
+            # Configure Docker to use the gcloud command-line tool as a credential
+            # helper for authentication
+            - run: |-
+                  gcloud --quiet auth configure-docker
+
+            - run: |-
+                  echo "GOOGLE_CREDENTIALS_FILE=$(basename $GOOGLE_APPLICATION_CREDENTIALS)" >> $GITHUB_ENV
+
+            - name: Login to GCR
+              uses: docker/login-action@v1
+              with:
+                  registry: gcr.io
+                  username: _json_key
+                  password: ${{ secrets.GOOGLE_CREDENTIALS }}
+
+            - name: Set up Docker Buildx
+              id: buildx
+              uses: docker/setup-buildx-action@master
+              with:
+                  driver: docker
+
+            - name: Cache Docker layers
+              uses: actions/cache@v2
+              with:
+                  path: /tmp/.buildx-cache
+                  key: ${{ runner.os }}-graphhopper-buildx-${{ github.sha}}
+                  restore-keys: |
+                      ${{ runner.os }}-graphhopper-buildx
+            # ---------------------
+
+            # Build base image for unit tests
+            - name: Build base image
+              uses: docker/build-push-action@v2
+              with:
+                  context: .
+                  push: false
+                  load: true
+                  file: Dockerfile.build
+                  tags: "us.gcr.io/model-159019/gh:${{ github.sha }}-dev"
+                  build-args: |
+                      GRAPHHOPPER_TOKEN=${{ secrets.GRAPHHOPPER_TOKEN}}
+                      GIT_PERSONAL_ACCESS=${{ secrets.GIT_PERSONAL_ACCESS }}
+                      GIT_USER_ID=${{ secrets.GIT_USER_ID }}
+                      GOOGLE_CREDENTIALS_FILE=${{ env.GOOGLE_CREDENTIALS_FILE }}
+                      MININORCAL_OSM_PATH=${{ secrets.MININORCAL_OSM_PATH}}
+                      MININORCAL_GTFS_PATH=${{ secrets.MININORCAL_GTFS_PATH}}
+
+            # Build the dev server image used in functional tests ahead of time,
+            # so we can have it available for quick testing in the model repo ASAP
+            - name: Build the server
+              uses: docker/build-push-action@v2
+              with:
+                  context: .
+                  push: false
+                  load: true
+                  file: Dockerfile.server
+                  tags: "us.gcr.io/model-159019/gh:${{ github.sha }}-server-dev"
+                  build-args: |
+                      BASE_IMAGE=us.gcr.io/model-159019/gh:${{ github.sha }}-dev
+
+            - name: Push server-dev image
+              run: |
+                  docker push us.gcr.io/model-159019/gh:${{ github.sha }}-server-dev
+
+            - name: run unit tests
+              run: |
+                  docker run -t -d --name testrunner us.gcr.io/model-159019/gh:${{ github.sha }}-dev /bin/bash
+                  docker exec -i testrunner /bin/bash -c "mvn test"

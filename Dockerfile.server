@@ -1,0 +1,34 @@
+ARG BASE_IMAGE
+FROM $BASE_IMAGE as base
+
+# copy over JARs + web assets + config YAMLs for running server
+FROM openjdk:14.0.2-jdk-slim-buster
+
+RUN mkdir -p /data
+WORKDIR /graphhopper
+COPY --from=base /graphhopper/grpc/target/*.jar ./grpc/target/
+COPY --from=base /graphhopper/web/target/*.jar ./web/target/
+COPY --from=base /graphhopper/grpc/src/main/resources ./grpc/src/main/resources
+COPY --from=base /graphhopper/configs/test_gh_config.yaml ./configs/
+COPY --from=base /graphhopper/web/test-data ./web/test-data
+# pom.xml is used to get the jar file version. see https://github.com/graphhopper/graphhopper/pull/1990#discussion_r409438806
+COPY ./pom.xml ./config-proxy.yaml ./run_gtfs_validation.sh ./
+COPY ./configs/nationwide_gh_config.yaml ./configs/gtfs_validation_gh_config.yaml ./configs/
+
+VOLUME [ "/data" ]
+
+EXPOSE 50051
+EXPOSE 8998
+EXPOSE 9010
+
+CMD java -server -Xms${HEAP_XMS_GB:-6}g -Xmx${HEAP_XMX_GB:-13}g \
+      -Dcom.sun.management.jmxremote \
+      -Dcom.sun.management.jmxremote.authenticate=false \
+      -Dcom.sun.management.jmxremote.ssl=false \
+      -Dcom.sun.management.jmxremote.local.only=false \
+      -Dcom.sun.management.jmxremote.port=9010 \
+      -Dcom.sun.management.jmxremote.rmi.port=9010 \
+      -Djava.rmi.server.hostname=127.0.0.1 \
+      -XX:+UseG1GC -XX:MetaspaceSize=100M \
+      -classpath grpc/target/graphhopper-grpc-1.0-SNAPSHOT.jar \
+      com.replica.RouterServer ./transit_data/configs/default_gh_config.yaml

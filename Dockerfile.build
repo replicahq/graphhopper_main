@@ -1,0 +1,75 @@
+# install protoc and protoc-gen-grpc-web
+FROM python:3.8 as protoc-build
+
+ENV PROTOC_ZIP=protoc-3.20.1-linux-x86_64.zip
+RUN curl -OL https://github.com/protocolbuffers/protobuf/releases/download/v3.20.1/$PROTOC_ZIP | bash \
+    && unzip -o $PROTOC_ZIP -d /usr/local bin/protoc \
+    && unzip -o $PROTOC_ZIP -d /usr/local 'include/*' \
+    && rm -f $PROTOC_ZIP
+
+ENV PROTOC_GEN_FILE=protoc-gen-grpc-web-1.3.1-linux-x86_64
+RUN curl -OL https://github.com/grpc/grpc-web/releases/download/1.3.1/$PROTOC_GEN_FILE | bash \
+    && mv $PROTOC_GEN_FILE /usr/local/bin/protoc-gen-grpc-web \
+    && chmod +x /usr/local/bin/protoc-gen-grpc-web
+
+ENV PATH="/usr/local/bin/protoc:/usr/local/bin/protoc-gen-grpc-web:${PATH}"
+
+# run protoc command to build router protos + JS/web assets needed for GUI
+WORKDIR /graphhopper
+COPY . .
+
+RUN mkdir -p ./grpc/src/main/proto \
+    && cp ./idls/model/router.proto ./grpc/src/main/proto/router.proto \
+    && mkdir -p ./grpc/src/main/resources/assets/pt/src/grpc
+RUN protoc grpc/src/main/proto/router.proto --js_out=import_style=commonjs:grpc/src/main/resources/assets/pt/src/grpc --grpc-web_out=import_style=commonjs,mode=grpcwebtext:grpc/src/main/resources/assets/pt/src/grpc
+
+
+# Build node modules
+FROM node:14-alpine as node-build
+
+WORKDIR /graphhopper
+COPY ./web ./web
+COPY ./web-bundle ./web-bundle
+COPY ./package.json ./package.json
+COPY ./package-lock.json ./package-lock.json
+COPY --from=protoc-build ./graphhopper/grpc ./grpc
+
+# Build PT GUI
+RUN npm ci
+RUN npm run build -- --config grpc/src/main/resources/assets/pt/webpack.config.js
+# Bundle files needed for non-PT GUI
+RUN cd web && npm ci && npm run bundle && cd ..
+
+# Bundle files needed for non-PT GUI
+RUN cd web && npm install && npm run bundle && cd ..
+
+# Download + set up files needed for tests
+FROM gcr.io/google.com/cloudsdktool/cloud-sdk:latest as test-build
+
+ARG MININORCAL_OSM_PATH
+ARG MININORCAL_GTFS_PATH
+ARG GOOGLE_CREDENTIALS_FILE
+
+WORKDIR /graphhopper
+COPY . .
+RUN gcloud auth activate-service-account --key-file=$GOOGLE_CREDENTIALS_FILE
+RUN ./setup_tests.sh
+
+
+# Build java code with Maven
+FROM maven:3.6.3-adoptopenjdk-14 as maven-build
+
+ARG GRAPHHOPPER_TOKEN
+ARG GIT_USER_ID
+ARG GIT_PERSONAL_ACCESS
+
+WORKDIR /graphhopper
+COPY . .
+RUN rm -r grpc && rm ./configs/test_gh_config.yaml
+COPY --from=node-build ./graphhopper/grpc ./grpc
+COPY --from=test-build ./graphhopper/web/test-data ./web/test-data
+COPY --from=test-build ./graphhopper/configs/test_gh_config.yaml ./configs/test_gh_config.yaml
+COPY --from=test-build ./graphhopper/configs/test_gh_config_one_feed.yaml ./configs/test_gh_config_one_feed.yaml
+
+RUN mvn -s maven_settings.xml --projects grpc -am -DskipTests=true package && \
+    mvn -s maven_settings.xml --projects web -am -DskipTests=true package

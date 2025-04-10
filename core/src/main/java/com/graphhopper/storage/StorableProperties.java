@@ -41,7 +41,7 @@ public class StorableProperties {
 
     public StorableProperties(Directory dir) {
         // reduce size
-        int segmentSize = 1 << 15;
+        int segmentSize = 1 << 16;
         this.da = dir.create("properties", segmentSize);
     }
 

@@ -15,16 +15,20 @@
  *  See the License for the specific language governing permissions and
  *  limitations under the License.
  */
-
-package com.graphhopper.routing.util.countryrules.europe;
+package com.graphhopper.routing.util.countryrules.americas;
 
 import com.graphhopper.routing.ev.DrivingSide;
 import com.graphhopper.routing.util.countryrules.CountryRule;
 
-public class UnitedKingdomCountryRule implements CountryRule {
+/**
+ * Country rule for the United States.
+ * The US uses right-hand traffic.
+ */
+public class UnitedStatesCountryRule implements CountryRule {
 
     @Override
     public DrivingSide getDrivingSide() {
-        return DrivingSide.LEFT;
+        return DrivingSide.RIGHT;
     }
 }
+

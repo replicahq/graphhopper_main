@@ -358,6 +358,30 @@ public class BikeTagParserTest extends AbstractBikeTagParserTester {
     }
 
     @Test
+    public void testCarFreePathways() {
+        // BikeHopper improvement: reward car-free pathways
+        ReaderWay way = new ReaderWay(1);
+        way.setTag("highway", "residential");
+        way.setTag("motor_vehicle", "no");
+        assertPriority(BEST, way);
+
+        way.clearTags();
+        way.setTag("highway", "service");
+        way.setTag("motor_vehicle", "private");
+        assertPriority(BEST, way);
+
+        way.clearTags();
+        way.setTag("highway", "tertiary");
+        way.setTag("motor_vehicle", "restricted");
+        assertPriority(BEST, way);
+
+        // Without motor_vehicle restriction, normal priority applies
+        way.clearTags();
+        way.setTag("highway", "residential");
+        assertPriority(PREFER, way);
+    }
+
+    @Test
     public void testWayAcceptance() {
         ReaderWay way = new ReaderWay(1);
         way.setTag("highway", "cycleway");
@@ -594,6 +618,52 @@ public class BikeTagParserTest extends AbstractBikeTagParserTester {
         osmWay.setTag("highway", "motorway");
         osmWay.setTag("bicycle", "yes");
         assertPriority(REACH_DESTINATION, osmWay);
+    }
+
+    @Test
+    public void testCyclewayEncodedValue() {
+        // Create an EncodingManager with Cycleway encoded value
+        EncodingManager em = new EncodingManager.Builder()
+                .add(VehicleEncodedValues.bike(new PMap()))
+                .add(Cycleway.create())
+                .build();
+
+        EnumEncodedValue<Cycleway> cyclewayEnc = em.getEnumEncodedValue(Cycleway.KEY, Cycleway.class);
+        OSMCyclewayParser cyclewayParser = new OSMCyclewayParser(cyclewayEnc);
+
+        ArrayEdgeIntAccess intAccess = new ArrayEdgeIntAccess(em.getIntsForFlags());
+        int edgeId = 0;
+        IntsRef relFlags = em.createRelationFlags();
+
+        // Test cycleway=track
+        ReaderWay way = new ReaderWay(1);
+        way.setTag("highway", "residential");
+        way.setTag("cycleway", "track");
+        cyclewayParser.handleWayTags(edgeId, intAccess, way, relFlags);
+        assertEquals(Cycleway.TRACK, cyclewayEnc.getEnum(false, edgeId, intAccess));
+
+        // Test cycleway=lane
+        intAccess = new ArrayEdgeIntAccess(em.getIntsForFlags());
+        way = new ReaderWay(2);
+        way.setTag("highway", "primary");
+        way.setTag("cycleway", "lane");
+        cyclewayParser.handleWayTags(edgeId, intAccess, way, relFlags);
+        assertEquals(Cycleway.LANE, cyclewayEnc.getEnum(false, edgeId, intAccess));
+
+        // Test cycleway=shared_lane
+        intAccess = new ArrayEdgeIntAccess(em.getIntsForFlags());
+        way = new ReaderWay(3);
+        way.setTag("highway", "secondary");
+        way.setTag("cycleway", "shared_lane");
+        cyclewayParser.handleWayTags(edgeId, intAccess, way, relFlags);
+        assertEquals(Cycleway.SHARED_LANE, cyclewayEnc.getEnum(false, edgeId, intAccess));
+
+        // Test no cycleway tag
+        intAccess = new ArrayEdgeIntAccess(em.getIntsForFlags());
+        way = new ReaderWay(4);
+        way.setTag("highway", "tertiary");
+        cyclewayParser.handleWayTags(edgeId, intAccess, way, relFlags);
+        assertEquals(Cycleway.MISSING, cyclewayEnc.getEnum(false, edgeId, intAccess));
     }
 
 }

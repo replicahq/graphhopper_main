@@ -22,6 +22,9 @@ import com.graphhopper.storage.DAType;
 /**
  * The MultiSourceElevationProvider mixes different elevation providers to provide the best available elevation data
  * for a certain area.
+ * <p>
+ * Uses CGIAR (SRTM-based) as primary provider within its coverage area (lat -56 to 59.999),
+ * with GMTED as fallback for areas outside SRTM coverage.
  *
  * @author Robin Boldt
  */
@@ -32,7 +35,9 @@ public class MultiSourceElevationProvider extends TileBasedElevationProvider {
     // The fallback provider that provides elevation data globally
     private final TileBasedElevationProvider globalProvider;
 
-    public MultiSourceElevationProvider(TileBasedElevationProvider srtmProvider, TileBasedElevationProvider globalProvider) {
+    public MultiSourceElevationProvider(
+            TileBasedElevationProvider srtmProvider,
+            TileBasedElevationProvider globalProvider) {
         super(srtmProvider.cacheDir.getAbsolutePath());
         this.srtmProvider = srtmProvider;
         this.globalProvider = globalProvider;

@@ -486,7 +486,8 @@ public class GraphHopperTest {
         // via unterwaiz
         assertEquals(3318, rsp.getAll().get(1).getTime() / 1000);
         // via eselslohe -> theta; BTW: here smaller time as 2nd alternative due to priority influences time order
-        assertEquals(3116, rsp.getAll().get(2).getTime() / 1000);
+        // Note: time reduced due to motor_vehicle=no priority bonus for car-free pathways
+        assertEquals(3103, rsp.getAll().get(2).getTime() / 1000);
     }
 
     @Test

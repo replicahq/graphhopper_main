@@ -18,10 +18,14 @@
 package com.graphhopper.routing.util.countryrules;
 
 import com.graphhopper.reader.ReaderWay;
+import com.graphhopper.routing.ev.DrivingSide;
 import com.graphhopper.routing.ev.RoadAccess;
 import com.graphhopper.routing.util.TransportationMode;
+import com.graphhopper.routing.util.countryrules.americas.UnitedStatesCountryRule;
 import com.graphhopper.routing.util.countryrules.europe.AustriaCountryRule;
 import com.graphhopper.routing.util.countryrules.europe.GermanyCountryRule;
+import com.graphhopper.routing.util.countryrules.europe.IrelandCountryRule;
+import com.graphhopper.routing.util.countryrules.europe.UnitedKingdomCountryRule;
 
 import org.junit.jupiter.api.Test;
 
@@ -42,6 +46,18 @@ class CountryRuleTest {
         assertEquals(RoadAccess.FORESTRY, rule.getAccess(createReaderWay("track"), TransportationMode.CAR, RoadAccess.YES));
         assertEquals(RoadAccess.YES, rule.getAccess(createReaderWay("primary"), TransportationMode.CAR, RoadAccess.YES));
         assertEquals(RoadAccess.DESTINATION, rule.getAccess(createReaderWay("living_street"), TransportationMode.CAR, RoadAccess.YES));
+    }
+
+    @Test
+    void drivingSide() {
+        // Default is RIGHT (most countries)
+        assertEquals(DrivingSide.RIGHT, new GermanyCountryRule().getDrivingSide());
+        assertEquals(DrivingSide.RIGHT, new AustriaCountryRule().getDrivingSide());
+        assertEquals(DrivingSide.RIGHT, new UnitedStatesCountryRule().getDrivingSide());
+
+        // UK and Ireland drive on the LEFT
+        assertEquals(DrivingSide.LEFT, new UnitedKingdomCountryRule().getDrivingSide());
+        assertEquals(DrivingSide.LEFT, new IrelandCountryRule().getDrivingSide());
     }
 
     private ReaderWay createReaderWay(String highway) {

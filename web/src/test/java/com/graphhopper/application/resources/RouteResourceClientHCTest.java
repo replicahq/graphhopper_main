@@ -403,7 +403,8 @@ public class RouteResourceClientHCTest {
 
         GHResponse response = gh.route(req);
         ResponsePath path = response.getBest();
-        assertEquals(5428, path.getDistance(), 5);
+        // Note: distance changed due to bike routing priority improvements (motor_vehicle=no bonus)
+        assertEquals(5151, path.getDistance(), 5);
         assertEquals(9, path.getWaypoints().size());
 
         assertEquals(path.getTime(), path.getPathDetails().get("leg_time").stream().mapToLong(d -> (long) d.getValue()).sum(), 1);

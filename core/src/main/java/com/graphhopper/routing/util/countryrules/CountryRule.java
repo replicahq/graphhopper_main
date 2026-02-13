@@ -19,6 +19,7 @@
 package com.graphhopper.routing.util.countryrules;
 
 import com.graphhopper.reader.ReaderWay;
+import com.graphhopper.routing.ev.DrivingSide;
 import com.graphhopper.routing.ev.RoadAccess;
 import com.graphhopper.routing.ev.Toll;
 import com.graphhopper.routing.util.TransportationMode;
@@ -33,5 +34,14 @@ public interface CountryRule {
 
     default Toll getToll(ReaderWay readerWay, Toll currentToll) {
         return currentToll;
+    }
+
+    /**
+     * Returns the driving side for this country.
+     * Used to correctly interpret cycleway:left and cycleway:right tags.
+     * Default is RIGHT (right-hand traffic), which is most common worldwide.
+     */
+    default DrivingSide getDrivingSide() {
+        return DrivingSide.RIGHT;
     }
 }

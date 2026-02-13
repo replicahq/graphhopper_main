@@ -29,6 +29,8 @@ public abstract class BikeCommonPriorityParser implements TagParser {
     protected final Set<String> unpavedSurfaceTags = new HashSet<>();
     protected final Set<String> ferries = new HashSet<>(FERRIES);
     protected final Set<String> intendedValues = new HashSet<>(INTENDED);
+    // BikeHopper: Values that indicate restricted motor vehicle access (used to reward car-free pathways)
+    protected final Set<String> restrictedValues = new HashSet<>(Arrays.asList("no", "restricted", "military", "emergency", "private", "permit"));
 
     protected final DecimalEncodedValue avgSpeedEnc;
     protected final DecimalEncodedValue priorityEnc;
@@ -217,6 +219,13 @@ public abstract class BikeCommonPriorityParser implements TagParser {
 
         if (way.hasTag("lcn", "yes"))
             weightToPrioMap.put(100d, PREFER);
+
+        // BikeHopper improvement: Reward car-free pathways (motor_vehicle=no)
+        // If no motor vehicles are permitted, treat this way like a pedestrian way.
+        // We treat this as a cycling infrastructure bonus so that its high priority
+        // is prioritized above everything else.
+        if (way.hasTag("motor_vehicle", restrictedValues))
+            weightToPrioMap.put(105d, BEST);
 
         String classBicycleValue = way.getTag(classBicycleKey);
         if (classBicycleValue != null) {

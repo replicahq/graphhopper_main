@@ -154,11 +154,11 @@ public class GMTEDProvider extends AbstractTiffElevationProvider {
         }
     }
 
-    double getMinLatForTile(double lat) {
+    int getMinLatForTile(double lat) {
         return (int) (Math.floor((90 + lat) / LAT_DEGREE) * LAT_DEGREE) - 90;
     }
 
-    double getMinLonForTile(double lon) {
+    int getMinLonForTile(double lon) {
         return (int) (Math.floor((180 + lon) / LON_DEGREE) * LON_DEGREE) - 180;
     }
 
@@ -184,14 +184,14 @@ public class GMTEDProvider extends AbstractTiffElevationProvider {
     }
 
     String getFileName(double lat, double lon) {
-        double lonInt = getMinLonForTile(lon);
-        double latInt = getMinLatForTile(lat);
+        int lonInt = getMinLonForTile(lon);
+        int latInt = getMinLatForTile(lat);
         return toLowerCase(getLatString(latInt) + getNorthString(latInt) + getLonString(lonInt) + getEastString(lonInt) + FILE_NAME_END);
     }
 
     String getDownloadURL(double lat, double lon) {
-        double lonInt = getMinLonForTile(lon);
-        double latInt = getMinLatForTile(lat);
+        int lonInt = getMinLonForTile(lon);
+        int latInt = getMinLatForTile(lat);
         String east = getEastString(lonInt);
         String lonString = getLonString(lonInt);
         return baseUrl + "/" + east + lonString + "/" + getLatString(latInt) + getNorthString(latInt) + lonString + east + FILE_NAME_END + ".tif";

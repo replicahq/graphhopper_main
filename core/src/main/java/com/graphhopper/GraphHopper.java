@@ -769,8 +769,6 @@ public class GraphHopper {
             elevationProvider = new MultiSourceElevationProvider(cacheDirStr);
         } else if (eleProviderStr.equalsIgnoreCase("skadi")) {
             elevationProvider = new SkadiProvider(cacheDirStr);
-        } else if (eleProviderStr.equalsIgnoreCase("usgs")) {
-            elevationProvider = new USGSProvider(cacheDirStr);
         }
 
         if (elevationProvider instanceof TileBasedElevationProvider) {

@@ -154,27 +154,27 @@ public class GMTEDProvider extends AbstractTiffElevationProvider {
         }
     }
 
-    double getMinLatForTile(double lat) {
+    int getMinLatForTile(double lat) {
         return (int) (Math.floor((90 + lat) / LAT_DEGREE) * LAT_DEGREE) - 90;
     }
 
-    double getMinLonForTile(double lon) {
+    int getMinLonForTile(double lon) {
         return (int) (Math.floor((180 + lon) / LON_DEGREE) * LON_DEGREE) - 180;
     }
 
-    private String getLonString(double lonInt) {
+    private String getLonString(int lonInt) {
         lonInt = Math.abs(lonInt);
         String lonString = lonInt < 100 ? "0" : "";
         if (lonInt < 10)
             lonString += "0";
-        lonString += (int) lonInt;
+        lonString += lonInt;
         return lonString;
     }
 
-    private String getLatString(double latInt) {
+    private String getLatString(int latInt) {
         latInt = Math.abs(latInt);
         String latString = latInt < 10 ? "0" : "";
-        latString += (int) latInt;
+        latString += latInt;
         return latString;
     }
 
@@ -184,14 +184,14 @@ public class GMTEDProvider extends AbstractTiffElevationProvider {
     }
 
     String getFileName(double lat, double lon) {
-        double lonInt = getMinLonForTile(lon);
-        double latInt = getMinLatForTile(lat);
+        int lonInt = getMinLonForTile(lon);
+        int latInt = getMinLatForTile(lat);
         return toLowerCase(getLatString(latInt) + getNorthString(latInt) + getLonString(lonInt) + getEastString(lonInt) + FILE_NAME_END);
     }
 
     String getDownloadURL(double lat, double lon) {
-        double lonInt = getMinLonForTile(lon);
-        double latInt = getMinLatForTile(lat);
+        int lonInt = getMinLonForTile(lon);
+        int latInt = getMinLatForTile(lat);
         String east = getEastString(lonInt);
         String lonString = getLonString(lonInt);
         return baseUrl + "/" + east + lonString + "/" + getLatString(latInt) + getNorthString(latInt) + lonString + east + FILE_NAME_END + ".tif";
@@ -202,14 +202,14 @@ public class GMTEDProvider extends AbstractTiffElevationProvider {
         return getFileName(lat, lon) + ".tif";
     }
 
-    private String getNorthString(double lat) {
+    private String getNorthString(int lat) {
         if (lat < 0) {
             return "S";
         }
         return "N";
     }
 
-    private String getEastString(double lon) {
+    private String getEastString(int lon) {
         if (lon < 0) {
             return "W";
         }

@@ -41,11 +41,11 @@ public abstract class AbstractTiffElevationProvider extends TileBasedElevationPr
     private final int HEIGHT;
 
     // Degrees of latitude covered by this tile
-    final double LAT_DEGREE;
+    final int LAT_DEGREE;
     // Degrees of longitude covered by this tile
-    final double LON_DEGREE;
+    final int LON_DEGREE;
 
-    public AbstractTiffElevationProvider(String baseUrl, String cacheDir, String downloaderName, int width, int height, double latDegree, double lonDegree) {
+    public AbstractTiffElevationProvider(String baseUrl, String cacheDir, String downloaderName, int width, int height, int latDegree, int lonDegree) {
         super(cacheDir);
         this.baseUrl = baseUrl;
         this.downloader = new Downloader(downloaderName).setTimeout(10000);
@@ -75,12 +75,12 @@ public abstract class AbstractTiffElevationProvider extends TileBasedElevationPr
     /**
      * The smallest lat that is still in the HeightTile
      */
-    abstract double getMinLatForTile(double lat);
+    abstract int getMinLatForTile(double lat);
 
     /**
      * The smallest lon that is still in the HeightTile
      */
-    abstract double getMinLonForTile(double lon);
+    abstract int getMinLonForTile(double lon);
 
     /**
      * Specify the name of the file after downloading
@@ -111,8 +111,8 @@ public abstract class AbstractTiffElevationProvider extends TileBasedElevationPr
             if (!cacheDir.exists())
                 cacheDir.mkdirs();
 
-            double minLat = getMinLatForTile(lat);
-            double minLon = getMinLonForTile(lon);
+            int minLat = getMinLatForTile(lat);
+            int minLon = getMinLonForTile(lon);
             // less restrictive against boundary checking
             demProvider = new HeightTile(minLat, minLon, WIDTH, HEIGHT, LON_DEGREE * precision, LON_DEGREE, LAT_DEGREE);
             demProvider.setInterpolate(interpolate);

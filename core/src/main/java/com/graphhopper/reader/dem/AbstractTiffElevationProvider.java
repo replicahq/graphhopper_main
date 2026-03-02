@@ -34,11 +34,11 @@ import java.util.Map;
  * @author Robin Boldt
  */
 public abstract class AbstractTiffElevationProvider extends TileBasedElevationProvider {
-    final Map<String, HeightTile> cacheData = new HashMap<>();
+    private final Map<String, HeightTile> cacheData = new HashMap<>();
     final double precision = 1e7;
 
-    final int WIDTH;
-    final int HEIGHT;
+    private final int WIDTH;
+    private final int HEIGHT;
 
     // Degrees of latitude covered by this tile
     final double LAT_DEGREE;
@@ -181,7 +181,7 @@ public abstract class AbstractTiffElevationProvider extends TileBasedElevationPr
         }
     }
 
-    void fillDataAccessWithElevationData(Raster raster, DataAccess heights, int dataAccessWidth) {
+    private void fillDataAccessWithElevationData(Raster raster, DataAccess heights, int dataAccessWidth) {
         final int height = raster.getHeight();
         final int width = raster.getWidth();
         int x = 0;

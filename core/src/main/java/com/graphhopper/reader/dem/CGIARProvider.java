@@ -118,9 +118,9 @@ public class CGIARProvider extends AbstractTiffElevationProvider {
 
     int down(double val) {
         // 'rounding' to closest 5
-        int intVal = (int) ((int) (val / LAT_DEGREE) * LAT_DEGREE);
+        int intVal = (int) (val / LAT_DEGREE) * LAT_DEGREE;
         if (!(val >= 0 || intVal - val < invPrecision))
-            intVal = (int) (intVal - LAT_DEGREE);
+            intVal = intVal - LAT_DEGREE;
 
         return intVal;
     }

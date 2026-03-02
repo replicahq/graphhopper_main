@@ -151,12 +151,12 @@ public class CGIARProvider extends AbstractTiffElevationProvider {
     }
 
     @Override
-    int getMinLatForTile(double lat) {
+    double getMinLatForTile(double lat) {
         return down(lat);
     }
 
     @Override
-    int getMinLonForTile(double lon) {
+    double getMinLonForTile(double lon) {
         return down(lon);
     }
 

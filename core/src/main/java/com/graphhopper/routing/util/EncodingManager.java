@@ -174,7 +174,6 @@ public class EncodingManager implements EncodedValueLookup {
                 keys.add(BikeNetwork.KEY);
                 keys.add(GetOffBike.KEY);
                 keys.add(Smoothness.KEY);
-                keys.add(Cycleway.KEY);
             }
             if (em.getVehicles().stream().anyMatch(vehicle -> vehicle.contains("foot") || vehicle.contains("hike") || vehicle.contains("wheelchair")))
                 keys.add(FootNetwork.KEY);

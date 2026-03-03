@@ -83,8 +83,6 @@ public class DefaultTagParserFactory implements TagParserFactory {
             return new StateParser(lookup.getEnumEncodedValue(State.KEY, State.class));
         else if (name.equals(Crossing.KEY))
             return new OSMCrossingParser(lookup.getEnumEncodedValue(Crossing.KEY, Crossing.class));
-        else if (name.equals(Cycleway.KEY))
-            return new OSMCyclewayParser(lookup.getEnumEncodedValue(Cycleway.KEY, Cycleway.class));
         return null;
     }
 }

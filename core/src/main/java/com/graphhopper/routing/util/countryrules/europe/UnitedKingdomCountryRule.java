@@ -18,13 +18,8 @@
 
 package com.graphhopper.routing.util.countryrules.europe;
 
-import com.graphhopper.routing.ev.DrivingSide;
 import com.graphhopper.routing.util.countryrules.CountryRule;
 
 public class UnitedKingdomCountryRule implements CountryRule {
 
-    @Override
-    public DrivingSide getDrivingSide() {
-        return DrivingSide.LEFT;
-    }
 }

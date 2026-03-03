@@ -688,8 +688,6 @@ public class GraphHopper {
                         osmParsers.addRelationTagParser(relConfig -> new OSMBikeNetworkTagParser(encodingManager.getEnumEncodedValue(BikeNetwork.KEY, RouteNetwork.class), relConfig));
                     if (encodingManager.hasEncodedValue(Smoothness.KEY) && added.add(Smoothness.KEY))
                         osmParsers.addWayTagParser(new OSMSmoothnessParser(encodingManager.getEnumEncodedValue(Smoothness.KEY, Smoothness.class)));
-                    if (encodingManager.hasEncodedValue(Cycleway.KEY) && added.add(Cycleway.KEY))
-                        osmParsers.addWayTagParser(new OSMCyclewayParser(encodingManager.getEnumEncodedValue(Cycleway.KEY, Cycleway.class)));
                 } else if (tagParser instanceof FootAccessParser) {
                     if (encodingManager.hasEncodedValue(FootNetwork.KEY) && added.add(FootNetwork.KEY))
                         osmParsers.addRelationTagParser(relConfig -> new OSMFootNetworkTagParser(encodingManager.getEnumEncodedValue(FootNetwork.KEY, RouteNetwork.class), relConfig));

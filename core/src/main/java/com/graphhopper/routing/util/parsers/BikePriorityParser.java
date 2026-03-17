@@ -16,7 +16,8 @@ public class BikePriorityParser extends BikeCommonPriorityParser {
     public BikePriorityParser(DecimalEncodedValue priorityEnc, DecimalEncodedValue speedEnc, EnumEncodedValue<RouteNetwork> bikeRouteEnc) {
         super(priorityEnc, speedEnc, bikeRouteEnc);
 
-        // PR #78: Allow biking on paths without dismounting
+        // Comment out addPushingSection, to allow biking on paths without dismounting
+        // addPushingSection("path");
 
         preferHighwayTags.add("service");
         preferHighwayTags.add("tertiary");

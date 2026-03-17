@@ -32,7 +32,9 @@ public abstract class BikeCommonAverageSpeedParser extends AbstractAverageSpeedP
         this.smoothnessEnc = smoothnessEnc;
 
         // duplicate code as also in BikeCommonPriorityParser
-        // PR #78: Allow biking on footways and pedestrian ways without dismounting
+        // Comment out addPushingSection for footway and pedestrian, to allow biking on these ways without dismounting
+        // addPushingSection("footway");
+        // addPushingSection("pedestrian");
         addPushingSection("steps");
         addPushingSection("platform");
 
@@ -73,7 +75,7 @@ public abstract class BikeCommonAverageSpeedParser extends AbstractAverageSpeedP
         setHighwaySpeed("steps", MIN_SPEED);
 
         setHighwaySpeed("cycleway", 18);
-        // PR #78: Increase speeds for pedestrian ways to match cycleway speed
+        // Note: speeds increased for pedestrian ways to ~match cycleway speeds
         setHighwaySpeed("path", 18);
         setHighwaySpeed("footway", 14);
         setHighwaySpeed("platform", PUSHING_SECTION_SPEED);
@@ -172,7 +174,7 @@ public abstract class BikeCommonAverageSpeedParser extends AbstractAverageSpeedP
                 && ((way.hasTag("foot", "yes") && way.hasTag("segregated", "yes"))
                 || (way.hasTag("bicycle", intendedValues)) && !way.hasTag("highway", "steps")))
             highwaySpeed = getHighwaySpeed("cycleway");
-        // PR #78: Handle segregated footway/path/pedestrian (no longer pushing sections)
+        // Handle segregated footway/path/pedestrian (no longer pushing sections)
         else if ((way.hasTag("highway", "footway") || way.hasTag("highway", "path") || way.hasTag("highway", "pedestrian"))
                 && way.hasTag("segregated", "yes"))
             highwaySpeed = getHighwaySpeed("cycleway");

@@ -29,7 +29,7 @@ public abstract class BikeCommonPriorityParser implements TagParser {
     protected final Set<String> unpavedSurfaceTags = new HashSet<>();
     protected final Set<String> ferries = new HashSet<>(FERRIES);
     protected final Set<String> intendedValues = new HashSet<>(INTENDED);
-    // BikeHopper: Values that indicate restricted motor vehicle access (used to reward car-free pathways)
+    // Values that indicate restricted motor vehicle access (used to reward car-free pathways)
     protected final Set<String> restrictedMotorVehicleValues = new HashSet<>(Arrays.asList("no", "agricultural", "forestry", "restricted", "delivery", "military", "emergency", "private", "permit"));
 
     protected final DecimalEncodedValue avgSpeedEnc;
@@ -49,7 +49,9 @@ public abstract class BikeCommonPriorityParser implements TagParser {
         this.avgSpeedEnc = avgSpeedEnc;
 
         // duplicate code as also in BikeCommonAverageSpeedParser
-        // PR #78: Allow biking on footways and pedestrian ways without dismounting
+        // Comment out addPushingSection for footway and pedestrian, to allow biking on these ways without dismounting
+        // addPushingSection("footway");
+        // addPushingSection("pedestrian");
         addPushingSection("steps");
         addPushingSection("platform");
 
@@ -154,8 +156,7 @@ public abstract class BikeCommonPriorityParser implements TagParser {
      */
     void collect(ReaderWay way, double wayTypeSpeed, TreeMap<Double, PriorityCode> weightToPrioMap) {
         String highway = way.getTag("highway");
-        // PR #78: Handle designated ways
-        // bicycle_road and cyclestreet always get VERY_NICE
+        // Handle designated ways; bicycle_road and cyclestreet always get VERY_NICE
         if (way.hasTag("bicycle_road", "yes") || way.hasTag("cyclestreet", "yes")) {
             weightToPrioMap.put(101d, VERY_NICE);
         }
@@ -176,7 +177,7 @@ public abstract class BikeCommonPriorityParser implements TagParser {
                 weightToPrioMap.put(100d, VERY_NICE);
         }
 
-        // PR #78: Set base priorities for pedestrian ways, paths, and footways
+        // Set base priorities for pedestrian ways, paths, and footways
         // These can be overridden by bicycle tags below
         if ("pedestrian".equals(highway)) {
             weightToPrioMap.put(90d, VERY_NICE);
@@ -186,7 +187,7 @@ public abstract class BikeCommonPriorityParser implements TagParser {
             weightToPrioMap.put(90d, UNCHANGED);
         }
 
-        // PR #78: Handle bicycle tags on footway/path/pedestrian (formerly pushing sections)
+        // Handle bicycle tags on footway/path/pedestrian (formerly pushing sections)
         if (("footway".equals(highway) || "path".equals(highway) || "pedestrian".equals(highway))) {
             if (way.hasTag("bicycle", "yes") || way.hasTag("bicycle", "permissive")) {
                 weightToPrioMap.put(100d, PREFER);
@@ -260,7 +261,7 @@ public abstract class BikeCommonPriorityParser implements TagParser {
         if (way.hasTag("lcn", "yes"))
             weightToPrioMap.put(100d, PREFER);
 
-        // BikeHopper improvement: Reward car-free pathways (motor_vehicle=no)
+        // Reward car-free pathways (motor_vehicle=no).
         // If no motor vehicles are permitted, treat this way like a pedestrian way.
         // We treat this as a cycling infrastructure bonus so that its high priority
         // is prioritized above everything else.

@@ -12,6 +12,7 @@ public class BikeAverageSpeedParser extends BikeCommonAverageSpeedParser {
 
     public BikeAverageSpeedParser(DecimalEncodedValue speedEnc, EnumEncodedValue<Smoothness> smoothnessEnc) {
         super(speedEnc, smoothnessEnc);
-        addPushingSection("path");
+        // Comment out addPushingSection, to allow biking on paths without dismounting
+        // addPushingSection("path");
     }
 }

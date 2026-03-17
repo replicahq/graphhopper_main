@@ -358,6 +358,30 @@ public class BikeTagParserTest extends AbstractBikeTagParserTester {
     }
 
     @Test
+    public void testCarFreePathways() {
+        // BikeHopper improvement: reward car-free pathways
+        ReaderWay way = new ReaderWay(1);
+        way.setTag("highway", "residential");
+        way.setTag("motor_vehicle", "no");
+        assertPriority(BEST, way);
+
+        way.clearTags();
+        way.setTag("highway", "service");
+        way.setTag("motor_vehicle", "private");
+        assertPriority(BEST, way);
+
+        way.clearTags();
+        way.setTag("highway", "tertiary");
+        way.setTag("motor_vehicle", "restricted");
+        assertPriority(BEST, way);
+
+        // Without motor_vehicle restriction, normal priority applies
+        way.clearTags();
+        way.setTag("highway", "residential");
+        assertPriority(PREFER, way);
+    }
+
+    @Test
     public void testWayAcceptance() {
         ReaderWay way = new ReaderWay(1);
         way.setTag("highway", "cycleway");

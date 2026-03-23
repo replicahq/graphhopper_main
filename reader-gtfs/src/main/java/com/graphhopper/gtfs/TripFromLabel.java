@@ -164,7 +164,7 @@ class TripFromLabel {
                 .filter(l -> l instanceof Trip.PtLeg)
                 .filter(l -> !((Trip.PtLeg) l).isInSameVehicleAsPrevious)
                 .count() - 1);
-        getCheapestFare(gtfsStorage, path.getLegs()).ifPresent(amount -> path.setFare(amount.getAmount()));
+        // getCheapestFare(gtfsStorage, path.getLegs()).ifPresent(amount -> path.setFare(amount.getAmount()));
         return path;
     }
 

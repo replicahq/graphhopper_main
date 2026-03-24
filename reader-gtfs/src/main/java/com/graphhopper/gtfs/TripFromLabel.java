@@ -164,7 +164,9 @@ class TripFromLabel {
                 .filter(l -> l instanceof Trip.PtLeg)
                 .filter(l -> !((Trip.PtLeg) l).isInSameVehicleAsPrevious)
                 .count() - 1);
-        getCheapestFare(gtfsStorage, path.getLegs()).ifPresent(amount -> path.setFare(amount.getAmount()));
+        // Comment out fare calculation for transit requests, as its implementation is inefficient and certain
+        // requests cause an explosion in memory usage + runtime
+        // getCheapestFare(gtfsStorage, path.getLegs()).ifPresent(amount -> path.setFare(amount.getAmount()));
         return path;
     }
 

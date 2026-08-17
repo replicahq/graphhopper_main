@@ -433,7 +433,7 @@ class TripFromLabel {
     }
 
     public List<Label.Transition> transferPath(int[] skippedEdgesForTransfer, Weighting transferWeighting, long currentTime) {
-        GraphExplorer graphExplorer = new GraphExplorer(graph, gtfsStorage.getPtGraph(), transferWeighting, gtfsStorage, realtimeFeed, false, true, false, walkSpeedKmH, false, 0);
+        GraphExplorer graphExplorer = new GraphExplorer(graph, gtfsStorage.getPtGraph(), transferWeighting, gtfsStorage, realtimeFeed, false, true, false, walkSpeedKmH, false, 0, gtfsStorage.getPrimaryStopSnapProfile());
         return graphExplorer.walkPath(skippedEdgesForTransfer, currentTime);
     }
 

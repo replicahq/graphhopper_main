@@ -18,6 +18,7 @@
 
 package com.graphhopper.gtfs;
 
+import com.carrotsearch.hppc.IntIntHashMap;
 import com.conveyal.gtfs.GTFSFeed;
 import com.conveyal.gtfs.model.*;
 import com.google.common.collect.HashMultimap;
@@ -93,25 +94,78 @@ class GtfsReader {
         this.indexBuilder = indexBuilder;
     }
 
-    void connectStopsToStreetNetwork(EdgeFilter filter) {
+    /**
+     * Attaches every stop to the street network once per mode.
+     *
+     * Each stop gets a single stop node in the transit graph, but one street attachment per profile in
+     * {@code snapFiltersByProfile}, so a rail platform can be reached over the adjacent footway on foot
+     * and over the nearest kerb by car. Previously a stop had one attachment, found with a filter every
+     * profile had to accept at once; nothing near an airport platform satisfies that, which pushed the
+     * attachment hundreds of metres away or dropped it entirely (DMP-16462).
+     *
+     * {@code primaryProfile} decides stop node identity, including which co-located stops collapse onto
+     * a shared stop node. Identity must come from exactly one profile, otherwise the set of stop nodes
+     * -- and hence the transit graph -- would depend on which modes happen to be configured.
+     *
+     * @param snapFiltersByProfile snap filter per profile
+     * @param primaryProfile       key in {@code snapFiltersByProfile} that governs stop node identity
+     */
+    void connectStopsToStreetNetwork(Map<String, EdgeFilter> snapFiltersByProfile, String primaryProfile) {
+        if (!snapFiltersByProfile.containsKey(primaryProfile)) {
+            throw new IllegalArgumentException("Primary stop snap profile '" + primaryProfile
+                    + "' is not among the snapped profiles " + snapFiltersByProfile.keySet());
+        }
+        int unattachedStops = 0;
+        int sharedAttachments = 0;
         for (Stop stop : feed.stops.values()) {
             if (stop.location_type == 0) { // Only stops. Not interested in parent stations for now.
-                Snap locationSnap = streetNetworkIndex.findClosest(stop.stop_lat, stop.stop_lon, filter);
-                int stopNode;
-                if (locationSnap.isValid()) {
-                    stopNode = gtfsStorage.getStreetToPt().getOrDefault(locationSnap.getClosestNode(), -1);
-                    if (stopNode == -1) {
-                        stopNode = out.createNode();
-                        indexBuilder.addToAllTilesOnLine(stopNode, stop.stop_lat, stop.stop_lon, stop.stop_lat, stop.stop_lon);
-                        gtfsStorage.getPtToStreet().put(stopNode, locationSnap.getClosestNode());
-                        gtfsStorage.getStreetToPt().put(locationSnap.getClosestNode(), stopNode);
+                Map<String, Integer> streetNodeByProfile = new LinkedHashMap<>();
+                for (Map.Entry<String, EdgeFilter> e : snapFiltersByProfile.entrySet()) {
+                    Snap snap = streetNetworkIndex.findClosest(stop.stop_lat, stop.stop_lon, e.getValue());
+                    if (snap.isValid()) {
+                        streetNodeByProfile.put(e.getKey(), snap.getClosestNode());
                     }
-                } else {
+                }
+
+                Integer primaryStreetNode = streetNodeByProfile.get(primaryProfile);
+                int stopNode = -1;
+                if (primaryStreetNode != null) {
+                    // Reuse the stop node of an earlier stop sharing this street node, so co-located stops
+                    // (including across feeds) stay a single boarding point as they did before.
+                    stopNode = gtfsStorage.getStreetToPt(primaryProfile).getOrDefault(primaryStreetNode, -1);
+                }
+                if (stopNode == -1) {
                     stopNode = out.createNode();
                     indexBuilder.addToAllTilesOnLine(stopNode, stop.stop_lat, stop.stop_lon, stop.stop_lat, stop.stop_lon);
                 }
+                if (streetNodeByProfile.isEmpty()) {
+                    unattachedStops++;
+                }
+
+                for (Map.Entry<String, Integer> e : streetNodeByProfile.entrySet()) {
+                    IntIntHashMap ptToStreet = gtfsStorage.getPtToStreet(e.getKey());
+                    IntIntHashMap streetToPt = gtfsStorage.getStreetToPt(e.getKey());
+                    if (!ptToStreet.containsKey(stopNode)) {
+                        ptToStreet.put(stopNode, e.getValue());
+                    }
+                    // This direction is one-to-one: if another stop already claimed this street node for
+                    // this profile, it stays reachable from the street side and this one does not.
+                    if (streetToPt.containsKey(e.getValue())) {
+                        sharedAttachments++;
+                    } else {
+                        streetToPt.put(e.getValue(), stopNode);
+                    }
+                }
                 gtfsStorage.getStationNodes().put(new GtfsStorage.FeedIdWithStopId(id, stop.stop_id), stopNode);
             }
+        }
+        if (unattachedStops > 0) {
+            LOGGER.warn("Feed {}: {} stops could not be attached to the street network for any of the profiles"
+                    + " {}, so they are reachable only by stop id.", id, unattachedStops, snapFiltersByProfile.keySet());
+        }
+        if (sharedAttachments > 0) {
+            LOGGER.info("Feed {}: {} stop/profile attachments landed on a street node already claimed by another"
+                    + " stop; those are not discoverable from the street side for that profile.", id, sharedAttachments);
         }
     }
 

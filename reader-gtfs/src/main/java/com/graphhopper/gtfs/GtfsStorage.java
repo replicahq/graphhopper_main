@@ -45,10 +45,19 @@ import java.nio.file.Paths;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class GtfsStorage {
 
 	private static final Logger LOGGER = LoggerFactory.getLogger(GtfsStorage.class);
+
+	/**
+	 * Profile used to snap stops when {@code gtfs.stop_snap_profiles} is not configured. Riders reach
+	 * transit on foot, and reader-gtfs already assumes a "foot" profile exists for transfer walking.
+	 */
+	public static final String DEFAULT_STOP_SNAP_PROFILE = "foot";
+
+	private static final String STOP_SNAP_PROFILES_FILE = "stop_snap_profiles";
 
 	static ObjectMapper ionMapper = new ObjectMapper();
 
@@ -168,8 +177,22 @@ public class GtfsStorage {
 	private Map<FeedIdWithStopId, Integer> stationNodes;
 	private IntObjectHashMap<int[]> skippedEdgesForTransfer;
 
-	private IntIntHashMap ptToStreet;
-	private IntIntHashMap streetToPt;
+	/**
+	 * Street attachment of each stop, one mapping per stop-snap profile.
+	 *
+	 * A stop has a single stop node in the transit graph, but may attach to the street network at a
+	 * different place for each mode: a rail platform is reached on foot via an adjacent footway, and
+	 * by car via the nearest kerb. Which mapping a query consults is decided by its access/egress
+	 * profile; see {@link GraphExplorer}.
+	 *
+	 * The first entry of {@link #stopSnapProfiles} is the primary profile. It alone decides stop node
+	 * identity -- and therefore which co-located stops collapse onto one stop node -- so that the
+	 * transit graph does not depend on which modes happen to be configured.
+	 */
+	private List<String> stopSnapProfiles = Collections.singletonList(DEFAULT_STOP_SNAP_PROFILE);
+	private Map<String, IntIntHashMap> ptToStreetByProfile = new LinkedHashMap<>();
+	private Map<String, IntIntHashMap> streetToPtByProfile = new LinkedHashMap<>();
+	private final Set<String> warnedUnsnappedProfiles = ConcurrentHashMap.newKeySet();
 
 	public enum EdgeType {
 		HIGHWAY, ENTER_TIME_EXPANDED_NETWORK, LEAVE_TIME_EXPANDED_NETWORK, ENTER_PT, EXIT_PT, HOP, DWELL, BOARD, ALIGHT, OVERNIGHT, TRANSFER, WAIT, WAIT_ARRIVAL
@@ -201,8 +224,14 @@ public class GtfsStorage {
             GTFSFeed feed = new GTFSFeed(dbFile);
             this.gtfsFeeds.put(gtfsFeedId, feed);
         }
-		ptToStreet = deserializeIntoIntIntHashMap("pt_to_street");
-		streetToPt = deserializeIntoIntIntHashMap("street_to_pt");
+		stopSnapProfiles = readStopSnapProfiles();
+		ptToStreetByProfile = new LinkedHashMap<>();
+		streetToPtByProfile = new LinkedHashMap<>();
+		for (String profile : stopSnapProfiles) {
+			ptToStreetByProfile.put(profile, deserializeIntoIntIntHashMap(ptToStreetFile(profile)));
+			streetToPtByProfile.put(profile, deserializeIntoIntIntHashMap(streetToPtFile(profile)));
+		}
+		LOGGER.info("Loaded stop street attachments for profiles {} (primary: {})", stopSnapProfiles, getPrimaryStopSnapProfile());
 		skippedEdgesForTransfer = deserializeIntoIntObjectHashMap("skipped_edges_for_transfer");
 		try (InputStream is = Files.newInputStream(Paths.get(dir.getLocation() + "interpolated_transfers"))) {
 			MappingIterator<JsonNode> objectMappingIterator = ionMapper.reader(JsonNode.class).readValues(is);
@@ -222,6 +251,46 @@ public class GtfsStorage {
         }
         postInit();
 		return true;
+	}
+
+	private static String ptToStreetFile(String profile) {
+		return "pt_to_street_" + profile;
+	}
+
+	private static String streetToPtFile(String profile) {
+		return "street_to_pt_" + profile;
+	}
+
+	/**
+	 * Reads the profile list written by {@link #flush()}.
+	 *
+	 * A store written before per-profile stop snapping has a single "pt_to_street" instead, and its
+	 * attachments were built by intersecting every configured profile -- not equivalent to any profile
+	 * we could name here. Fail with an explicit message rather than a FileNotFoundException, because
+	 * the usual cause is a router image rolled ahead of a graph rebuild.
+	 */
+	private List<String> readStopSnapProfiles() {
+		File file = new File(dir.getLocation() + STOP_SNAP_PROFILES_FILE);
+		if (!file.exists()) {
+			throw new IllegalStateException("Graph store at " + dir.getLocation() + " predates per-profile stop"
+					+ " snapping: '" + STOP_SNAP_PROFILES_FILE + "' is missing. This store must be rebuilt by a"
+					+ " matching builder image; a newer router cannot read it.");
+		}
+		try {
+			List<String> profiles = new ArrayList<>();
+			for (String line : Files.readAllLines(file.toPath())) {
+				String profile = line.trim();
+				if (!profile.isEmpty()) {
+					profiles.add(profile);
+				}
+			}
+			if (profiles.isEmpty()) {
+				throw new IllegalStateException("No stop snap profiles recorded in " + file);
+			}
+			return profiles;
+		} catch (IOException e) {
+			throw new RuntimeException(e);
+		}
 	}
 
 	private IntIntHashMap deserializeIntoIntIntHashMap(String filename) {
@@ -273,9 +342,24 @@ public class GtfsStorage {
     private void init() {
 		this.gtfsFeedIds = data.getHashSet("gtfsFeeds");
 		this.stationNodes = data.getHashMap("stationNodes");
-		this.ptToStreet = new IntIntHashMap();
-		this.streetToPt = new IntIntHashMap();
 		this.skippedEdgesForTransfer = new IntObjectHashMap<>();
+	}
+
+	/**
+	 * Declares which profiles stops will be snapped for, ordered, primary first. Must be called before
+	 * the GTFS readers run.
+	 */
+	void setStopSnapProfiles(List<String> profiles) {
+		if (profiles == null || profiles.isEmpty()) {
+			throw new IllegalArgumentException("At least one stop snap profile is required");
+		}
+		this.stopSnapProfiles = Collections.unmodifiableList(new ArrayList<>(profiles));
+		this.ptToStreetByProfile = new LinkedHashMap<>();
+		this.streetToPtByProfile = new LinkedHashMap<>();
+		for (String profile : this.stopSnapProfiles) {
+			ptToStreetByProfile.put(profile, new IntIntHashMap());
+			streetToPtByProfile.put(profile, new IntIntHashMap());
+		}
 	}
 
 	void loadGtfsFromZipFileOrDirectory(String id, File zipFileOrDirectory) {
@@ -315,12 +399,65 @@ public class GtfsStorage {
 		return faresByFeed;
 	}
 
-	public IntIntHashMap getPtToStreet() {
-		return ptToStreet;
+	public List<String> getStopSnapProfiles() {
+		return stopSnapProfiles;
 	}
 
-	public IntIntHashMap getStreetToPt() {
-		return streetToPt;
+	/**
+	 * Profile that decided stop node identity at import time. Used wherever the street attachment is
+	 * needed but no access/egress mode is in play -- notably transfer walking, which is always on foot.
+	 */
+	public String getPrimaryStopSnapProfile() {
+		return stopSnapProfiles.get(0);
+	}
+
+	/**
+	 * Stop node -> street node for the given profile. Absent means this stop has no attachment usable
+	 * by that mode, which callers represent as a street node of -1.
+	 */
+	public IntIntHashMap getPtToStreet(String profile) {
+		return requireSnapProfile(ptToStreetByProfile, profile);
+	}
+
+	/**
+	 * Street node -> stop node for the given profile. Note this direction is inherently one-to-one: if
+	 * two stops share their nearest street node for a mode, only the first is discoverable from the
+	 * street side for that mode.
+	 */
+	public IntIntHashMap getStreetToPt(String profile) {
+		return requireSnapProfile(streetToPtByProfile, profile);
+	}
+
+	/**
+	 * Maps a requested access/egress profile onto one that actually has attachments.
+	 *
+	 * A request may name any configured routing profile, but only the profiles in
+	 * {@code gtfs.stop_snap_profiles} were snapped. Rather than fail such a query, fall back to the
+	 * primary profile's attachments: those sit on the walking network, which a non-walk mode can still
+	 * use wherever the attachment node is shared with a road. List the mode in
+	 * {@code gtfs.stop_snap_profiles} and rebuild to give it attachments of its own.
+	 */
+	public String resolveStopSnapProfile(String requestedProfile) {
+		if (ptToStreetByProfile.containsKey(requestedProfile)) {
+			return requestedProfile;
+		}
+		if (warnedUnsnappedProfiles.add(requestedProfile)) {
+			LOGGER.warn("Stops were not snapped for profile '{}' (snapped: {}); falling back to '{}'"
+					+ " attachments for access/egress with that profile. Add it to gtfs.stop_snap_profiles"
+					+ " and rebuild the graph to give it its own attachments.",
+					requestedProfile, stopSnapProfiles, getPrimaryStopSnapProfile());
+		}
+		return getPrimaryStopSnapProfile();
+	}
+
+	private IntIntHashMap requireSnapProfile(Map<String, IntIntHashMap> maps, String profile) {
+		IntIntHashMap map = maps.get(profile);
+		if (map == null) {
+			throw new IllegalArgumentException("No stop snapping was built for profile '" + profile + "'."
+					+ " Configured stop snap profiles: " + stopSnapProfiles
+					+ ". Add it to gtfs.stop_snap_profiles and rebuild the graph.");
+		}
+		return map;
 	}
 
 	public Map<String, GTFSFeed> getGtfsFeeds() {
@@ -332,8 +469,15 @@ public class GtfsStorage {
 	}
 
 	public void flush() {
-		serialize("pt_to_street", ptToStreet);
-		serialize("street_to_pt", streetToPt);
+		try {
+			Files.write(Paths.get(dir.getLocation() + STOP_SNAP_PROFILES_FILE), stopSnapProfiles);
+		} catch (IOException e) {
+			throw new RuntimeException(e);
+		}
+		for (String profile : stopSnapProfiles) {
+			serialize(ptToStreetFile(profile), ptToStreetByProfile.get(profile));
+			serialize(streetToPtFile(profile), streetToPtByProfile.get(profile));
+		}
 		serialize("skipped_edges_for_transfer", skippedEdgesForTransfer);
 		try (OutputStream os = Files.newOutputStream(Paths.get(dir.getLocation() + "interpolated_transfers"))) {
 			SequenceWriter sequenceWriter = ionMapper.writer().writeValuesAsArray(os);

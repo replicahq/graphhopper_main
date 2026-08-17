@@ -25,10 +25,12 @@ import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Multimaps;
 import com.graphhopper.GraphHopper;
 import com.graphhopper.GraphHopperConfig;
+import com.graphhopper.config.Profile;
 import com.graphhopper.gtfs.analysis.Trips;
 import com.graphhopper.routing.ev.Subnetwork;
 import com.graphhopper.routing.querygraph.QueryGraph;
 import com.graphhopper.routing.util.DefaultSnapFilter;
+import com.graphhopper.routing.util.EdgeFilter;
 import com.graphhopper.routing.weighting.Weighting;
 import com.graphhopper.storage.index.InMemConstructionIndex;
 import com.graphhopper.storage.index.IndexStructureInfo;
@@ -90,8 +92,12 @@ public class GraphHopperGtfs extends GraphHopper {
                 }
             }
         } else {
+            // Resolved before any store is created: a bad profile name is a config error, and reporting it
+            // from inside the block below would blame the GTFS feed for it.
+            List<String> stopSnapProfiles = readStopSnapProfiles();
             ensureWriteAccess();
             getGtfsStorage().create();
+            getGtfsStorage().setStopSnapProfiles(stopSnapProfiles);
             ptGraph.create(100);
             InMemConstructionIndex indexBuilder = new InMemConstructionIndex(IndexStructureInfo.create(
                     new BBox(-180.0, 180.0, -90.0, 90.0), 300));
@@ -102,22 +108,22 @@ public class GraphHopperGtfs extends GraphHopper {
                     getGtfsStorage().loadGtfsFromZipFileOrDirectory("gtfs_" + idx++, new File(gtfsFile));
                 }
                 getGtfsStorage().postInit();
+                LOGGER.info("Snapping stops to the street network once per profile: {} (primary: {})",
+                        stopSnapProfiles, stopSnapProfiles.get(0));
                 Map<String, Transfers> allTransfers = new HashMap<>();
                 HashMap<String, GtfsReader> allReaders = new HashMap<>();
                 getGtfsStorage().getGtfsFeeds().forEach((id, gtfsFeed) -> {
                     Transfers transfers = new Transfers(gtfsFeed);
                     allTransfers.put(id, transfers);
                     GtfsReader gtfsReader = new GtfsReader(id, ptGraph, ptGraph, getGtfsStorage(), getLocationIndex(), transfers, indexBuilder);
-                    // Stops must be connected to the networks of all the modes
-                    List<DefaultSnapFilter> snapFilters = getProfiles().stream().map(p ->
-                            new DefaultSnapFilter(createWeighting(p, new PMap()), getEncodingManager().getBooleanEncodedValue(Subnetwork.key(p.getName())))).collect(Collectors.toList());
-                    gtfsReader.connectStopsToStreetNetwork(e -> {
-                        for (DefaultSnapFilter snapFilter : snapFilters) {
-                            if (!snapFilter.accept(e))
-                                return false;
-                        }
-                        return true;
-                    });
+                    // One attachment per mode, rather than one attachment that every mode must accept.
+                    Map<String, EdgeFilter> snapFilters = new LinkedHashMap<>();
+                    for (String profileName : stopSnapProfiles) {
+                        Profile profile = getProfile(profileName);
+                        snapFilters.put(profileName, new DefaultSnapFilter(createWeighting(profile, new PMap()),
+                                getEncodingManager().getBooleanEncodedValue(Subnetwork.key(profileName))));
+                    }
+                    gtfsReader.connectStopsToStreetNetwork(snapFilters, stopSnapProfiles.get(0));
                     LOGGER.info("Building transit graph for feed {}", gtfsFeed.feedId);
                     gtfsReader.buildPtNetwork();
                     allReaders.put(id, gtfsReader);
@@ -145,13 +151,46 @@ public class GraphHopperGtfs extends GraphHopper {
         gtfsStorage.setStopIndex(stopIndex);
     }
 
+    /**
+     * Profiles to snap stops for, from {@code gtfs.stop_snap_profiles} (comma-separated, first entry is
+     * primary). Defaults to {@link GtfsStorage#DEFAULT_STOP_SNAP_PROFILE} alone: riders reach transit on
+     * foot, and requiring an attachment that cars and trucks can also use strands stops whose only
+     * nearby street is a footway (DMP-16462). List additional profiles to support non-walk access legs.
+     */
+    private List<String> readStopSnapProfiles() {
+        String configured = ghConfig.getString("gtfs.stop_snap_profiles", GtfsStorage.DEFAULT_STOP_SNAP_PROFILE);
+        List<String> profiles = new ArrayList<>();
+        for (String name : configured.split(",")) {
+            String profileName = name.trim();
+            if (profileName.isEmpty()) {
+                continue;
+            }
+            // getProfile returns null for an unknown name, which would otherwise NPE inside createWeighting.
+            if (getProfile(profileName) == null) {
+                throw new IllegalArgumentException("gtfs.stop_snap_profiles names profile '" + profileName
+                        + "', which is not configured. Available profiles: "
+                        + getProfiles().stream().map(Profile::getName).collect(Collectors.toList()));
+            }
+            if (!profiles.contains(profileName)) {
+                profiles.add(profileName);
+            }
+        }
+        if (profiles.isEmpty()) {
+            throw new IllegalArgumentException("gtfs.stop_snap_profiles is set but names no usable profile: '"
+                    + configured + "'");
+        }
+        return profiles;
+    }
+
     private void interpolateTransfers(HashMap<String, GtfsReader> readers, Map<String, Transfers> allTransfers) {
         LOGGER.info("Looking for transfers");
         final int maxTransferWalkTimeSeconds = ghConfig.getInt("gtfs.max_transfer_interpolation_walk_time_seconds", 120);
         QueryGraph queryGraph = QueryGraph.create(getBaseGraph(), Collections.emptyList());
         Weighting transferWeighting = createWeighting(getProfile("foot"), new PMap());
-        final GraphExplorer graphExplorer = new GraphExplorer(queryGraph, ptGraph, transferWeighting, getGtfsStorage(), RealtimeFeed.empty(), true, true, false, 5.0, false, 0);
-        getGtfsStorage().getStationNodes().values().stream().distinct().map(n -> new Label.NodeId(gtfsStorage.getPtToStreet().getOrDefault(n, -1), n)).forEach(stationNode -> {
+        // Transfer walking always uses the primary profile's attachments, matching the foot weighting above.
+        String transferSnapProfile = getGtfsStorage().getPrimaryStopSnapProfile();
+        final GraphExplorer graphExplorer = new GraphExplorer(queryGraph, ptGraph, transferWeighting, getGtfsStorage(), RealtimeFeed.empty(), true, true, false, 5.0, false, 0, transferSnapProfile);
+        getGtfsStorage().getStationNodes().values().stream().distinct().map(n -> new Label.NodeId(gtfsStorage.getPtToStreet(transferSnapProfile).getOrDefault(n, -1), n)).forEach(stationNode -> {
             MultiCriteriaLabelSetting router = new MultiCriteriaLabelSetting(graphExplorer, true, false, false, 0, new ArrayList<>());
             router.setLimitStreetTime(Duration.ofSeconds(maxTransferWalkTimeSeconds).toMillis());
             for (Label label : router.calcLabels(stationNode, Instant.ofEpochMilli(0))) {

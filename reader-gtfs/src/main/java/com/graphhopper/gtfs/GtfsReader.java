@@ -116,7 +116,7 @@ class GtfsReader {
                     + "' is not among the snapped profiles " + snapFiltersByProfile.keySet());
         }
         int unattachedStops = 0;
-        int sharedAttachments = 0;
+        int shadowedAttachments = 0;
         for (Stop stop : feed.stops.values()) {
             if (stop.location_type == 0) { // Only stops. Not interested in parent stations for now.
                 Map<String, Integer> streetNodeByProfile = new LinkedHashMap<>();
@@ -148,12 +148,14 @@ class GtfsReader {
                     if (!ptToStreet.containsKey(stopNode)) {
                         ptToStreet.put(stopNode, e.getValue());
                     }
-                    // This direction is one-to-one: if another stop already claimed this street node for
-                    // this profile, it stays reachable from the street side and this one does not.
-                    if (streetToPt.containsKey(e.getValue())) {
-                        sharedAttachments++;
-                    } else {
+                    // This direction is one-to-one. A hit here is usually two stops merged onto the same
+                    // stop node, which is fine; only a hit resolving to a *different* stop node means this
+                    // stop is not discoverable from the street side for this profile.
+                    int claimedBy = streetToPt.getOrDefault(e.getValue(), -1);
+                    if (claimedBy == -1) {
                         streetToPt.put(e.getValue(), stopNode);
+                    } else if (claimedBy != stopNode) {
+                        shadowedAttachments++;
                     }
                 }
                 gtfsStorage.getStationNodes().put(new GtfsStorage.FeedIdWithStopId(id, stop.stop_id), stopNode);
@@ -163,9 +165,9 @@ class GtfsReader {
             LOGGER.warn("Feed {}: {} stops could not be attached to the street network for any of the profiles"
                     + " {}, so they are reachable only by stop id.", id, unattachedStops, snapFiltersByProfile.keySet());
         }
-        if (sharedAttachments > 0) {
-            LOGGER.info("Feed {}: {} stop/profile attachments landed on a street node already claimed by another"
-                    + " stop; those are not discoverable from the street side for that profile.", id, sharedAttachments);
+        if (shadowedAttachments > 0) {
+            LOGGER.info("Feed {}: {} stop/profile attachments landed on a street node already claimed by a"
+                    + " different stop; those are not discoverable from the street side for that profile.", id, shadowedAttachments);
         }
     }
 

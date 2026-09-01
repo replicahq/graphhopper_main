@@ -108,8 +108,15 @@ public class GraphHopperGtfs extends GraphHopper {
                     getGtfsStorage().loadGtfsFromZipFileOrDirectory("gtfs_" + idx++, new File(gtfsFile));
                 }
                 getGtfsStorage().postInit();
+                String primaryProfile = getGtfsStorage().getPrimaryStopSnapProfile();
                 LOGGER.info("Snapping stops to the street network once per profile: {} (primary: {})",
-                        stopSnapProfiles, stopSnapProfiles.get(0));
+                        stopSnapProfiles, primaryProfile);
+                // Feed-independent, so build the filters once rather than per feed.
+                Map<String, EdgeFilter> snapFilters = new LinkedHashMap<>();
+                for (String profileName : stopSnapProfiles) {
+                    snapFilters.put(profileName, new DefaultSnapFilter(createWeighting(getProfile(profileName), new PMap()),
+                            getEncodingManager().getBooleanEncodedValue(Subnetwork.key(profileName))));
+                }
                 Map<String, Transfers> allTransfers = new HashMap<>();
                 HashMap<String, GtfsReader> allReaders = new HashMap<>();
                 getGtfsStorage().getGtfsFeeds().forEach((id, gtfsFeed) -> {
@@ -117,13 +124,7 @@ public class GraphHopperGtfs extends GraphHopper {
                     allTransfers.put(id, transfers);
                     GtfsReader gtfsReader = new GtfsReader(id, ptGraph, ptGraph, getGtfsStorage(), getLocationIndex(), transfers, indexBuilder);
                     // One attachment per mode, rather than one attachment that every mode must accept.
-                    Map<String, EdgeFilter> snapFilters = new LinkedHashMap<>();
-                    for (String profileName : stopSnapProfiles) {
-                        Profile profile = getProfile(profileName);
-                        snapFilters.put(profileName, new DefaultSnapFilter(createWeighting(profile, new PMap()),
-                                getEncodingManager().getBooleanEncodedValue(Subnetwork.key(profileName))));
-                    }
-                    gtfsReader.connectStopsToStreetNetwork(snapFilters, stopSnapProfiles.get(0));
+                    gtfsReader.connectStopsToStreetNetwork(snapFilters, primaryProfile);
                     LOGGER.info("Building transit graph for feed {}", gtfsFeed.feedId);
                     gtfsReader.buildPtNetwork();
                     allReaders.put(id, gtfsReader);

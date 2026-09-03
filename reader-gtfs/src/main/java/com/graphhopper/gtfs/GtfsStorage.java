@@ -52,10 +52,13 @@ public class GtfsStorage {
 	private static final Logger LOGGER = LoggerFactory.getLogger(GtfsStorage.class);
 
 	/**
-	 * Profile used to snap stops when {@code gtfs.stop_snap_profiles} is not configured. Riders reach
-	 * transit on foot, and reader-gtfs already assumes a "foot" profile exists for transfer walking.
+	 * The profile that always decides stop node identity, regardless of what {@code
+	 * gtfs.stop_snap_profiles} names or how it orders them. Riders reach transit on foot, and
+	 * reader-gtfs already assumes a "foot" profile exists for transfer walking, so stops are always
+	 * snapped for it -- {@link GraphHopperGtfs#readStopSnapProfiles()} adds it whether or not it was
+	 * configured.
 	 */
-	public static final String DEFAULT_STOP_SNAP_PROFILE = "foot";
+	public static final String PRIMARY_STOP_SNAP_PROFILE = "foot";
 
 	private static final String STOP_SNAP_PROFILES_FILE = "stop_snap_profiles";
 
@@ -185,11 +188,11 @@ public class GtfsStorage {
 	 * by car via the nearest kerb. Which mapping a query consults is decided by its access/egress
 	 * profile; see {@link GraphExplorer}.
 	 *
-	 * The first entry of {@link #stopSnapProfiles} is the primary profile. It alone decides stop node
-	 * identity -- and therefore which co-located stops collapse onto one stop node -- so that the
-	 * transit graph does not depend on which modes happen to be configured.
+	 * {@link #PRIMARY_STOP_SNAP_PROFILE} alone decides stop node identity -- and therefore which
+	 * co-located stops collapse onto one stop node -- so that the transit graph does not depend on
+	 * which modes happen to be configured. It is always present here; see that constant.
 	 */
-	private List<String> stopSnapProfiles = Collections.singletonList(DEFAULT_STOP_SNAP_PROFILE);
+	private List<String> stopSnapProfiles = Collections.singletonList(PRIMARY_STOP_SNAP_PROFILE);
 	private Map<String, IntIntHashMap> ptToStreetByProfile = new LinkedHashMap<>();
 	private Map<String, IntIntHashMap> streetToPtByProfile = new LinkedHashMap<>();
 	private final Set<String> warnedUnsnappedProfiles = ConcurrentHashMap.newKeySet();
@@ -344,10 +347,13 @@ public class GtfsStorage {
 	}
 
 	/**
-	 * Declares which profiles stops will be snapped for, ordered, primary first, and gives each an
-	 * empty attachment map. Must be called before the GTFS readers run. {@link #loadExisting()} also
-	 * calls this to get the profile list installed, then overwrites the maps with the deserialized
-	 * ones -- a couple of throwaway empty maps, not worth a second method to avoid.
+	 * Declares which profiles stops will be snapped for, and gives each an empty attachment map. The
+	 * caller is responsible for including {@link #PRIMARY_STOP_SNAP_PROFILE} -- this method does not
+	 * enforce it, since it has no way to check the profile is actually configured; see
+	 * {@link GraphHopperGtfs#readStopSnapProfiles()}, the sole caller that builds this list. Must be
+	 * called before the GTFS readers run. {@link #loadExisting()} also calls this to get the profile
+	 * list installed, then overwrites the maps with the deserialized ones -- a couple of throwaway
+	 * empty maps, not worth a second method to avoid.
 	 */
 	void initStopSnapProfiles(List<String> profiles) {
 		if (profiles == null || profiles.isEmpty()) {
@@ -404,11 +410,12 @@ public class GtfsStorage {
 	}
 
 	/**
-	 * Profile that decided stop node identity at import time. Used wherever the street attachment is
-	 * needed but no access/egress mode is in play -- notably transfer walking, which is always on foot.
+	 * Always {@link #PRIMARY_STOP_SNAP_PROFILE}. Used wherever the street attachment is needed but no
+	 * access/egress mode is in play -- notably transfer walking, which is always on foot -- and as the
+	 * fallback for a requested mode that wasn't snapped.
 	 */
 	public String getPrimaryStopSnapProfile() {
-		return stopSnapProfiles.get(0);
+		return PRIMARY_STOP_SNAP_PROFILE;
 	}
 
 	/**

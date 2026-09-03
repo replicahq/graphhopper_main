@@ -153,17 +153,25 @@ public class GraphHopperGtfs extends GraphHopper {
     }
 
     /**
-     * Profiles to snap stops for, from {@code gtfs.stop_snap_profiles} (comma-separated, first entry is
-     * primary). Defaults to {@link GtfsStorage#DEFAULT_STOP_SNAP_PROFILE} alone: riders reach transit on
-     * foot, and requiring an attachment that cars and trucks can also use strands stops whose only
-     * nearby street is a footway (DMP-16462). List additional profiles to support non-walk access legs.
+     * Profiles to snap stops for: always {@link GtfsStorage#PRIMARY_STOP_SNAP_PROFILE}, plus whatever
+     * {@code gtfs.stop_snap_profiles} (comma-separated) adds. Riders reach transit on foot, and
+     * requiring an attachment that cars and trucks can also use strands stops whose only nearby street
+     * is a footway (DMP-16462), so the primary profile is snapped unconditionally -- naming it in the
+     * config, or where it falls in the list, changes nothing. List additional profiles to support
+     * non-walk access legs.
      */
     private List<String> readStopSnapProfiles() {
-        String configured = ghConfig.getString("gtfs.stop_snap_profiles", GtfsStorage.DEFAULT_STOP_SNAP_PROFILE);
+        if (getProfile(GtfsStorage.PRIMARY_STOP_SNAP_PROFILE) == null) {
+            throw new IllegalArgumentException("No '" + GtfsStorage.PRIMARY_STOP_SNAP_PROFILE
+                    + "' profile is configured. Stops are always snapped for it; add it to graphhopper.profiles."
+                    + " Available profiles: " + getProfiles().stream().map(Profile::getName).collect(Collectors.toList()));
+        }
         List<String> profiles = new ArrayList<>();
+        profiles.add(GtfsStorage.PRIMARY_STOP_SNAP_PROFILE);
+        String configured = ghConfig.getString("gtfs.stop_snap_profiles", "");
         for (String name : configured.split(",")) {
             String profileName = name.trim();
-            if (profileName.isEmpty()) {
+            if (profileName.isEmpty() || profiles.contains(profileName)) {
                 continue;
             }
             // getProfile returns null for an unknown name, which would otherwise NPE inside createWeighting.
@@ -172,13 +180,7 @@ public class GraphHopperGtfs extends GraphHopper {
                         + "', which is not configured. Available profiles: "
                         + getProfiles().stream().map(Profile::getName).collect(Collectors.toList()));
             }
-            if (!profiles.contains(profileName)) {
-                profiles.add(profileName);
-            }
-        }
-        if (profiles.isEmpty()) {
-            throw new IllegalArgumentException("gtfs.stop_snap_profiles is set but names no usable profile: '"
-                    + configured + "'");
+            profiles.add(profileName);
         }
         return profiles;
     }
@@ -188,7 +190,8 @@ public class GraphHopperGtfs extends GraphHopper {
         final int maxTransferWalkTimeSeconds = ghConfig.getInt("gtfs.max_transfer_interpolation_walk_time_seconds", 120);
         QueryGraph queryGraph = QueryGraph.create(getBaseGraph(), Collections.emptyList());
         Weighting transferWeighting = createWeighting(getProfile("foot"), new PMap());
-        // Transfer walking always uses the primary profile's attachments, matching the foot weighting above.
+        // Transfer walking always uses the primary profile's attachments. Primary is always foot
+        // (GtfsStorage.PRIMARY_STOP_SNAP_PROFILE), matching the foot weighting above.
         String transferSnapProfile = getGtfsStorage().getPrimaryStopSnapProfile();
         final GraphExplorer graphExplorer = new GraphExplorer(queryGraph, ptGraph, transferWeighting, getGtfsStorage(), RealtimeFeed.empty(), true, true, false, 5.0, false, 0, transferSnapProfile);
         getGtfsStorage().getStationNodes().values().stream().distinct().map(n -> new Label.NodeId(gtfsStorage.getPtToStreet(transferSnapProfile).getOrDefault(n, -1), n)).forEach(stationNode -> {

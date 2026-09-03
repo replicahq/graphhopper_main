@@ -90,7 +90,8 @@ class PerModeStopSnappingIT {
         try {
             GtfsStorage storage = graphHopperGtfs.getGtfsStorage();
             assertThat(storage.getStopSnapProfiles()).containsExactly("foot", "car_default");
-            // First entry is primary: it alone decides stop node identity.
+            // Primary is always GtfsStorage.PRIMARY_STOP_SNAP_PROFILE ("foot"), regardless of config order;
+            // it alone decides stop node identity.
             assertThat(storage.getPrimaryStopSnapProfile()).isEqualTo("foot");
 
             IntIntHashMap footAttachments = storage.getPtToStreet("foot");
@@ -157,6 +158,54 @@ class PerModeStopSnappingIT {
         } finally {
             graphHopperGtfs.close();
         }
+    }
+
+    @Test
+    void primaryProfileIsSnappedEvenWhenOmittedFromConfig() {
+        // "foot" isn't named in gtfs.stop_snap_profiles at all here.
+        GraphHopperConfig ghConfig = config("target/PerModeStopSnappingIT-primary-omitted", "car_default");
+        GraphHopperGtfs graphHopperGtfs = importFresh(ghConfig);
+        try {
+            GtfsStorage storage = graphHopperGtfs.getGtfsStorage();
+            // Riders reach transit on foot regardless of what a caller lists, so it's always included.
+            assertThat(storage.getStopSnapProfiles()).contains(GtfsStorage.PRIMARY_STOP_SNAP_PROFILE, "car_default");
+            assertThat(storage.getPrimaryStopSnapProfile()).isEqualTo(GtfsStorage.PRIMARY_STOP_SNAP_PROFILE);
+            assertThat(storage.getPtToStreet(GtfsStorage.PRIMARY_STOP_SNAP_PROFILE)).isNotEmpty();
+        } finally {
+            graphHopperGtfs.close();
+        }
+    }
+
+    @Test
+    void primaryProfileIsPrimaryRegardlessOfConfiguredOrder() {
+        // "foot" is named, but listed second -- order in the config must not decide identity.
+        GraphHopperConfig ghConfig = config("target/PerModeStopSnappingIT-order", "car_default,foot");
+        GraphHopperGtfs graphHopperGtfs = importFresh(ghConfig);
+        try {
+            assertThat(graphHopperGtfs.getGtfsStorage().getPrimaryStopSnapProfile())
+                    .isEqualTo(GtfsStorage.PRIMARY_STOP_SNAP_PROFILE);
+        } finally {
+            graphHopperGtfs.close();
+        }
+    }
+
+    @Test
+    void rejectsMissingPrimaryProfileBeforeCreatingAStore() {
+        GraphHopperConfig ghConfig = new GraphHopperConfig();
+        ghConfig.putObject("datareader.file", "files/beatty.osm");
+        ghConfig.putObject("import.osm.ignored_highways", "");
+        ghConfig.putObject("gtfs.file", "files/sample-feed");
+        ghConfig.putObject("graph.location", "target/PerModeStopSnappingIT-no-foot");
+        // No profile named "foot" configured at all.
+        ghConfig.setProfiles(Arrays.asList(new Profile("car_default").setVehicle("car").setWeighting("fastest")));
+        Helper.removeDir(new File("target/PerModeStopSnappingIT-no-foot"));
+        GraphHopperGtfs graphHopperGtfs = new GraphHopperGtfs(ghConfig);
+        graphHopperGtfs.init(ghConfig);
+        // Stops are always snapped for the primary profile, so its absence is a config error, not
+        // something that should NPE deep inside weighting construction.
+        assertThatThrownBy(graphHopperGtfs::importOrLoad)
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining(GtfsStorage.PRIMARY_STOP_SNAP_PROFILE);
     }
 
     @Test

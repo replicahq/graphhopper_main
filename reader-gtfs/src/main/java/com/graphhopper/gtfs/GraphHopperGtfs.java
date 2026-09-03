@@ -97,7 +97,7 @@ public class GraphHopperGtfs extends GraphHopper {
             List<String> stopSnapProfiles = readStopSnapProfiles();
             ensureWriteAccess();
             getGtfsStorage().create();
-            getGtfsStorage().setStopSnapProfiles(stopSnapProfiles);
+            getGtfsStorage().initStopSnapProfiles(stopSnapProfiles);
             ptGraph.create(100);
             InMemConstructionIndex indexBuilder = new InMemConstructionIndex(IndexStructureInfo.create(
                     new BBox(-180.0, 180.0, -90.0, 90.0), 300));

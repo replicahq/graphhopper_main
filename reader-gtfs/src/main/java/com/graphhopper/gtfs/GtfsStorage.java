@@ -224,7 +224,7 @@ public class GtfsStorage {
             GTFSFeed feed = new GTFSFeed(dbFile);
             this.gtfsFeeds.put(gtfsFeedId, feed);
         }
-		initStopSnapProfileStorage(readStopSnapProfiles());
+		initStopSnapProfiles(readStopSnapProfiles());
 		for (String profile : stopSnapProfiles) {
 			ptToStreetByProfile.put(profile, deserializeIntoIntIntHashMap(ptToStreetFile(profile)));
 			streetToPtByProfile.put(profile, deserializeIntoIntIntHashMap(streetToPtFile(profile)));
@@ -344,25 +344,22 @@ public class GtfsStorage {
 	}
 
 	/**
-	 * Declares which profiles stops will be snapped for, ordered, primary first. Must be called before
-	 * the GTFS readers run.
+	 * Declares which profiles stops will be snapped for, ordered, primary first, and gives each an
+	 * empty attachment map. Must be called before the GTFS readers run. {@link #loadExisting()} also
+	 * calls this to get the profile list installed, then overwrites the maps with the deserialized
+	 * ones -- a couple of throwaway empty maps, not worth a second method to avoid.
 	 */
-	void setStopSnapProfiles(List<String> profiles) {
-		initStopSnapProfileStorage(profiles);
-		for (String profile : stopSnapProfiles) {
-			ptToStreetByProfile.put(profile, new IntIntHashMap());
-			streetToPtByProfile.put(profile, new IntIntHashMap());
-		}
-	}
-
-	/** Installs the profile list and gives back empty attachment maps, ready to be populated per profile. */
-	private void initStopSnapProfileStorage(List<String> profiles) {
+	void initStopSnapProfiles(List<String> profiles) {
 		if (profiles == null || profiles.isEmpty()) {
 			throw new IllegalArgumentException("At least one stop snap profile is required");
 		}
 		this.stopSnapProfiles = Collections.unmodifiableList(new ArrayList<>(profiles));
 		this.ptToStreetByProfile = new LinkedHashMap<>();
 		this.streetToPtByProfile = new LinkedHashMap<>();
+		for (String profile : this.stopSnapProfiles) {
+			ptToStreetByProfile.put(profile, new IntIntHashMap());
+			streetToPtByProfile.put(profile, new IntIntHashMap());
+		}
 	}
 
 	void loadGtfsFromZipFileOrDirectory(String id, File zipFileOrDirectory) {

@@ -224,7 +224,7 @@ public class GtfsStorage {
             GTFSFeed feed = new GTFSFeed(dbFile);
             this.gtfsFeeds.put(gtfsFeedId, feed);
         }
-		resetStopSnapProfiles(readStopSnapProfiles());
+		initStopSnapProfileStorage(readStopSnapProfiles());
 		for (String profile : stopSnapProfiles) {
 			ptToStreetByProfile.put(profile, deserializeIntoIntIntHashMap(ptToStreetFile(profile)));
 			streetToPtByProfile.put(profile, deserializeIntoIntIntHashMap(streetToPtFile(profile)));
@@ -348,15 +348,15 @@ public class GtfsStorage {
 	 * the GTFS readers run.
 	 */
 	void setStopSnapProfiles(List<String> profiles) {
-		resetStopSnapProfiles(profiles);
+		initStopSnapProfileStorage(profiles);
 		for (String profile : stopSnapProfiles) {
 			ptToStreetByProfile.put(profile, new IntIntHashMap());
 			streetToPtByProfile.put(profile, new IntIntHashMap());
 		}
 	}
 
-	/** Adopts the profile list and clears the attachment maps, ready to be populated per profile. */
-	private void resetStopSnapProfiles(List<String> profiles) {
+	/** Installs the profile list and gives back empty attachment maps, ready to be populated per profile. */
+	private void initStopSnapProfileStorage(List<String> profiles) {
 		if (profiles == null || profiles.isEmpty()) {
 			throw new IllegalArgumentException("At least one stop snap profile is required");
 		}

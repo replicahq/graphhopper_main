@@ -117,6 +117,7 @@ class GtfsReader {
         }
         int unattachedStops = 0;
         int shadowedAttachments = 0;
+        int droppedSecondaryAttachments = 0;
         for (Stop stop : feed.stops.values()) {
             if (stop.location_type == 0) { // Only stops. Not interested in parent stations for now.
                 Map<String, Integer> streetNodeByProfile = new LinkedHashMap<>();
@@ -145,8 +146,15 @@ class GtfsReader {
                 for (Map.Entry<String, Integer> e : streetNodeByProfile.entrySet()) {
                     IntIntHashMap ptToStreet = gtfsStorage.getPtToStreet(e.getKey());
                     IntIntHashMap streetToPt = gtfsStorage.getStreetToPt(e.getKey());
+                    // This direction is one-to-one too, the mirror image of the streetToPt case below: when
+                    // the primary profile merges two originally-distinct stops onto one stopNode, they can
+                    // still disagree on this profile's nearest street node. Whichever one got here first is
+                    // kept -- alighting at this stop under this profile always lands on that node, never the
+                    // other one's.
                     if (!ptToStreet.containsKey(stopNode)) {
                         ptToStreet.put(stopNode, e.getValue());
+                    } else if (ptToStreet.get(stopNode) != e.getValue()) {
+                        droppedSecondaryAttachments++;
                     }
                     // This direction is one-to-one. A hit here is usually two stops merged onto the same
                     // stop node, which is fine; only a hit resolving to a *different* stop node means this
@@ -168,6 +176,11 @@ class GtfsReader {
         if (shadowedAttachments > 0) {
             LOGGER.info("Feed {}: {} stop/profile attachments landed on a street node already claimed by a"
                     + " different stop; those are not discoverable from the street side for that profile.", id, shadowedAttachments);
+        }
+        if (droppedSecondaryAttachments > 0) {
+            LOGGER.info("Feed {}: {} secondary attachments were discarded because a stop merged onto an"
+                    + " existing stop node already had a different one; alighting there will use the wrong"
+                    + " attachment for that profile.", id, droppedSecondaryAttachments);
         }
     }
 

@@ -1,6 +1,7 @@
 package com.graphhopper.gtfs;
 
 import com.carrotsearch.hppc.IntHashSet;
+import com.carrotsearch.hppc.IntIntHashMap;
 import com.carrotsearch.hppc.cursors.IntCursor;
 import com.conveyal.gtfs.GTFSFeed;
 import com.conveyal.gtfs.model.Stop;
@@ -42,12 +43,20 @@ public class PtLocationSnapper {
         this.gtfsStorage = gtfsStorage;
     }
 
-    public Result snapAll(List<GHLocation> locations, List<EdgeFilter> snapFilters) {
+    /**
+     * @param snapFilters  snap filter per location, parallel to {@code locations}
+     * @param snapProfiles stop snap profile per location, parallel to {@code locations}: whose street
+     *                     attachments this endpoint uses -- the access profile for the origin, the
+     *                     egress profile for the destination
+     */
+    public Result snapAll(List<GHLocation> locations, List<EdgeFilter> snapFilters, List<String> snapProfiles) {
         PointList points = new PointList(2, false);
         ArrayList<Snap> pointSnaps = new ArrayList<>();
         ArrayList<Supplier<Label.NodeId>> allSnaps = new ArrayList<>();
         for (int i = 0; i < locations.size(); i++) {
             GHLocation location = locations.get(i);
+            final IntIntHashMap ptToStreet = gtfsStorage.getPtToStreet(snapProfiles.get(i));
+            final IntIntHashMap streetToPt = gtfsStorage.getStreetToPt(snapProfiles.get(i));
             if (location instanceof GHPointLocation) {
                 GHPoint point = ((GHPointLocation) location).ghPoint;
                 final Snap closest = locationIndex.findClosest(point.lat, point.lon, snapFilters.get(i));
@@ -64,18 +73,18 @@ public class PtLocationSnapper {
                             Stop stop = gtfsStorage.getGtfsFeeds().get(e.getKey().feedId).stops.get(e.getKey().stopId);
                             final Snap stopSnap = new Snap(stop.stop_lat, stop.stop_lon);
                             stopSnap.setClosestNode(stopNodeId.value);
-                            allSnaps.add(() -> new Label.NodeId(gtfsStorage.getPtToStreet().getOrDefault(stopSnap.getClosestNode(), -1), stopSnap.getClosestNode()));
+                            allSnaps.add(() -> new Label.NodeId(ptToStreet.getOrDefault(stopSnap.getClosestNode(), -1), stopSnap.getClosestNode()));
                             points.add(stopSnap.getQueryPoint().lat, stopSnap.getQueryPoint().lon);
                         }
                     }
                 } else {
                     pointSnaps.add(closest);
-                    allSnaps.add(() -> new Label.NodeId(closest.getClosestNode(), gtfsStorage.getStreetToPt().getOrDefault(closest.getClosestNode(), -1)));
+                    allSnaps.add(() -> new Label.NodeId(closest.getClosestNode(), streetToPt.getOrDefault(closest.getClosestNode(), -1)));
                     points.add(closest.getSnappedPoint());
                 }
             } else if (location instanceof GHStationLocation) {
                 final Snap stopSnap = findByStopId((GHStationLocation) location, i);
-                allSnaps.add(() -> new Label.NodeId(gtfsStorage.getPtToStreet().getOrDefault(stopSnap.getClosestNode(), -1), stopSnap.getClosestNode()));
+                allSnaps.add(() -> new Label.NodeId(ptToStreet.getOrDefault(stopSnap.getClosestNode(), -1), stopSnap.getClosestNode()));
                 points.add(stopSnap.getQueryPoint().lat, stopSnap.getQueryPoint().lon);
             }
         }

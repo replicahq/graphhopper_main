@@ -18,6 +18,7 @@
 
 package com.graphhopper.gtfs;
 
+import com.carrotsearch.hppc.IntIntHashMap;
 import com.conveyal.gtfs.GTFSFeed;
 import com.google.common.collect.Iterators;
 import com.google.transit.realtime.GtfsRealtime;
@@ -50,11 +51,21 @@ public final class GraphExplorer {
     private final int blockedRouteTypes;
     private final PtGraph ptGraph;
     private final Graph graph;
+    /**
+     * Street attachments for the mode this explorer routes, resolved once from {@code stopSnapProfile}.
+     * A search crossing between the street and transit graphs must use the attachments belonging to its
+     * own access/egress mode: walking onto the platform footway is not the same place as being dropped
+     * at the kerb.
+     */
+    private final IntIntHashMap ptToStreet;
+    private final IntIntHashMap streetToPt;
 
-    public GraphExplorer(Graph graph, PtGraph ptGraph, Weighting accessEgressWeighting, GtfsStorage gtfsStorage, RealtimeFeed realtimeFeed, boolean reverse, boolean streetOnly, boolean ptOnly, double walkSpeedKmh, boolean ignoreValidities, int blockedRouteTypes) {
+    public GraphExplorer(Graph graph, PtGraph ptGraph, Weighting accessEgressWeighting, GtfsStorage gtfsStorage, RealtimeFeed realtimeFeed, boolean reverse, boolean streetOnly, boolean ptOnly, double walkSpeedKmh, boolean ignoreValidities, int blockedRouteTypes, String stopSnapProfile) {
         this.graph = graph;
         this.ptGraph = ptGraph;
         this.accessEgressWeighting = accessEgressWeighting;
+        this.ptToStreet = gtfsStorage.getPtToStreet(stopSnapProfile);
+        this.streetToPt = gtfsStorage.getStreetToPt(stopSnapProfile);
         this.ignoreValidities = ignoreValidities;
         this.blockedRouteTypes = blockedRouteTypes;
         this.edgeExplorer = graph.createEdgeExplorer();
@@ -294,9 +305,9 @@ public final class GraphExplorer {
 
         public Label.NodeId getAdjNode() {
             if (ptEdge != null) {
-                return new Label.NodeId(gtfsStorage.getPtToStreet().getOrDefault(ptEdge.getAdjNode(), -1), ptEdge.getAdjNode());
+                return new Label.NodeId(ptToStreet.getOrDefault(ptEdge.getAdjNode(), -1), ptEdge.getAdjNode());
             } else {
-                return new Label.NodeId(adjNode, gtfsStorage.getStreetToPt().getOrDefault(adjNode, -1));
+                return new Label.NodeId(adjNode, streetToPt.getOrDefault(adjNode, -1));
             }
         }
 

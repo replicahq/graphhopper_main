@@ -153,7 +153,7 @@ public final class PtRouterTripBasedImpl implements PtRouter {
 
         GHResponse route() {
             StopWatch stopWatch = new StopWatch().start();
-            PtLocationSnapper.Result result = new PtLocationSnapper(baseGraph, locationIndex, gtfsStorage).snapAll(Arrays.asList(enter, exit), Arrays.asList(accessSnapFilter, egressSnapFilter));
+            PtLocationSnapper.Result result = new PtLocationSnapper(baseGraph, locationIndex, gtfsStorage).snapAll(Arrays.asList(enter, exit), Arrays.asList(accessSnapFilter, egressSnapFilter), Arrays.asList(gtfsStorage.resolveStopSnapProfile(accessProfile.getName()), gtfsStorage.resolveStopSnapProfile(egressProfile.getName())));
             queryGraph = result.queryGraph;
             response.addDebugInfo("idLookup:" + stopWatch.stop().getSeconds() + "s");
 
@@ -208,7 +208,7 @@ public final class PtRouterTripBasedImpl implements PtRouter {
         }
 
         private List<Label> accessEgress(Label.NodeId startNode, Label.NodeId destNode, boolean isEgress) {
-            final GraphExplorer accessEgressGraphExplorer = new GraphExplorer(queryGraph, ptGraph, isEgress ? egressWeighting : accessWeighting, gtfsStorage, RealtimeFeed.empty(), isEgress, true, false, walkSpeedKmH, false, blockedRouteTypes);
+            final GraphExplorer accessEgressGraphExplorer = new GraphExplorer(queryGraph, ptGraph, isEgress ? egressWeighting : accessWeighting, gtfsStorage, RealtimeFeed.empty(), isEgress, true, false, walkSpeedKmH, false, blockedRouteTypes, gtfsStorage.resolveStopSnapProfile(isEgress ? egressProfile.getName() : accessProfile.getName()));
             GtfsStorage.EdgeType edgeType = isEgress ? GtfsStorage.EdgeType.EXIT_PT : GtfsStorage.EdgeType.ENTER_PT;
             MultiCriteriaLabelSetting stationRouter = new MultiCriteriaLabelSetting(accessEgressGraphExplorer, isEgress, false, false, 0, new ArrayList<>());
             stationRouter.setBetaStreetTime(betaStreetTime);

@@ -18,6 +18,7 @@
 
 package com.graphhopper.gtfs;
 
+import com.carrotsearch.hppc.IntIntHashMap;
 import com.conveyal.gtfs.GTFSFeed;
 import com.conveyal.gtfs.model.*;
 import com.google.common.collect.HashMultimap;
@@ -26,6 +27,9 @@ import com.graphhopper.routing.util.EdgeFilter;
 import com.graphhopper.storage.index.InMemConstructionIndex;
 import com.graphhopper.storage.index.LocationIndex;
 import com.graphhopper.storage.index.Snap;
+import com.graphhopper.util.DistanceCalcEarth;
+import com.graphhopper.util.FetchMode;
+import com.graphhopper.util.PointList;
 import org.mapdb.Fun;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -71,6 +75,8 @@ class GtfsReader {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(GtfsReader.class);
 
+    static final double FAR_SNAP_METERS = 100;
+
     private final LocationIndex streetNetworkIndex;
     private final GtfsStorage gtfsStorage;
 
@@ -93,27 +99,122 @@ class GtfsReader {
         this.indexBuilder = indexBuilder;
     }
 
-    void connectStopsToStreetNetwork(EdgeFilter filter) {
+    /**
+     * Attaches every stop to the street network once per mode.
+     *
+     * Each stop gets a single stop node in the transit graph, but one street attachment per profile in
+     * {@code snapFiltersByProfile}, so a rail platform can be reached over the adjacent footway on foot
+     * and over the nearest kerb by car. Previously a stop had one attachment, found with a filter every
+     * profile had to accept at once; nothing near an airport platform satisfies that, which pushed the
+     * attachment hundreds of metres away or dropped it entirely (DMP-16462).
+     *
+     * {@code primaryProfile} decides stop node identity, including which co-located stops collapse onto
+     * a shared stop node. Identity must come from exactly one profile, otherwise the set of stop nodes
+     * -- and hence the transit graph -- would depend on which modes happen to be configured.
+     *
+     * @param snapFiltersByProfile snap filter per profile
+     * @param primaryProfile       key in {@code snapFiltersByProfile} that governs stop node identity
+     */
+    void connectStopsToStreetNetwork(Map<String, EdgeFilter> snapFiltersByProfile, String primaryProfile) {
+        if (!snapFiltersByProfile.containsKey(primaryProfile)) {
+            throw new IllegalArgumentException("Primary stop snap profile '" + primaryProfile
+                    + "' is not among the snapped profiles " + snapFiltersByProfile.keySet());
+        }
+        int unattachedStops = 0;
+        int shadowedAttachments = 0;
+        int droppedSecondaryAttachments = 0;
+        int farPrimarySnaps = 0;
         for (Stop stop : feed.stops.values()) {
             if (stop.location_type == 0) { // Only stops. Not interested in parent stations for now.
-                Snap locationSnap = streetNetworkIndex.findClosest(stop.stop_lat, stop.stop_lon, filter);
-                int stopNode;
-                if (locationSnap.isValid()) {
-                    stopNode = gtfsStorage.getStreetToPt().getOrDefault(locationSnap.getClosestNode(), -1);
-                    if (stopNode == -1) {
-                        stopNode = out.createNode();
-                        indexBuilder.addToAllTilesOnLine(stopNode, stop.stop_lat, stop.stop_lon, stop.stop_lat, stop.stop_lon);
-                        gtfsStorage.getPtToStreet().put(stopNode, locationSnap.getClosestNode());
-                        gtfsStorage.getStreetToPt().put(locationSnap.getClosestNode(), stopNode);
+                Map<String, Integer> streetNodeByProfile = new LinkedHashMap<>();
+                for (Map.Entry<String, EdgeFilter> e : snapFiltersByProfile.entrySet()) {
+                    Snap snap = streetNetworkIndex.findClosest(stop.stop_lat, stop.stop_lon, e.getValue());
+                    if (snap.isValid()) {
+                        streetNodeByProfile.put(e.getKey(), snap.getClosestNode());
+                        // log stops that snap to far-away nodes with the primary profile
+                        if (e.getKey().equals(primaryProfile)) {
+                            double metres = distanceToAttachmentNode(stop, snap);
+                            if (metres > FAR_SNAP_METERS) {
+                                farPrimarySnaps++;
+                                LOGGER.warn("Feed {}: stop {} ({}) attaches {}m from its own coordinates on the '{}' profile.",
+                                        id, stop.stop_id, stop.stop_name, (int) metres, primaryProfile);
+                            }
+                        }
                     }
-                } else {
+                }
+
+                Integer primaryStreetNode = streetNodeByProfile.get(primaryProfile);
+                int stopNode = -1;
+                if (primaryStreetNode != null) {
+                    // Reuse the stop node of an earlier stop sharing this street node, so co-located stops
+                    // (including across feeds) stay a single boarding point as they did before.
+                    stopNode = gtfsStorage.getStreetToPt(primaryProfile).getOrDefault(primaryStreetNode, -1);
+                }
+                if (stopNode == -1) {
                     stopNode = out.createNode();
                     indexBuilder.addToAllTilesOnLine(stopNode, stop.stop_lat, stop.stop_lon, stop.stop_lat, stop.stop_lon);
+                }
+                if (streetNodeByProfile.isEmpty()) {
+                    unattachedStops++;
+                }
+
+                for (Map.Entry<String, Integer> e : streetNodeByProfile.entrySet()) {
+                    IntIntHashMap ptToStreet = gtfsStorage.getPtToStreet(e.getKey());
+                    IntIntHashMap streetToPt = gtfsStorage.getStreetToPt(e.getKey());
+                    // This direction is one-to-one too, the mirror image of the streetToPt case below: when
+                    // the primary profile merges two originally-distinct stops onto one stopNode, they can
+                    // still disagree on this profile's nearest street node. Whichever one got here first is
+                    // kept -- alighting at this stop under this profile always lands on that node, never the
+                    // other one's.
+                    if (!ptToStreet.containsKey(stopNode)) {
+                        ptToStreet.put(stopNode, e.getValue());
+                    } else if (ptToStreet.get(stopNode) != e.getValue()) {
+                        droppedSecondaryAttachments++;
+                    }
+                    // This direction is one-to-one. A hit here is usually two stops merged onto the same
+                    // stop node, which is fine; only a hit resolving to a *different* stop node means this
+                    // stop is not discoverable from the street side for this profile.
+                    int claimedBy = streetToPt.getOrDefault(e.getValue(), -1);
+                    if (claimedBy == -1) {
+                        streetToPt.put(e.getValue(), stopNode);
+                    } else if (claimedBy != stopNode) {
+                        shadowedAttachments++;
+                    }
                 }
                 gtfsStorage.getStationNodes().put(new GtfsStorage.FeedIdWithStopId(id, stop.stop_id), stopNode);
             }
         }
+        if (unattachedStops > 0) {
+            LOGGER.warn("Feed {}: {} stops could not be attached to the street network for any of the profiles"
+                    + " {}, so they are reachable only by stop id.", id, unattachedStops, snapFiltersByProfile.keySet());
+        }
+        if (shadowedAttachments > 0) {
+            LOGGER.info("Feed {}: {} stop/profile attachments landed on a street node already claimed by a"
+                    + " different stop; those are not discoverable from the street side for that profile.", id, shadowedAttachments);
+        }
+        if (droppedSecondaryAttachments > 0) {
+            LOGGER.info("Feed {}: {} secondary attachments were discarded because a stop merged onto an"
+                    + " existing stop node already had a different one; alighting there will use the wrong"
+                    + " attachment for that profile.", id, droppedSecondaryAttachments);
+        }
+        if (farPrimarySnaps > 0) {
+            LOGGER.warn("Feed {}: {} stops attach to the street network more than {}m from their own"
+                    + " coordinates on the '{}' profile; see the per-stop lines above.",
+                    id, farPrimarySnaps, (int) FAR_SNAP_METERS, primaryProfile);
+        }
     }
+
+    /**
+     * Distance from the stop to {@code snap.getClosestNode()}, the tower node we actually attach to.
+     * That node is one end of the closest edge, and the edge's geometry carries both ends, so no
+     * separate node access is needed.
+     */
+    private static double distanceToAttachmentNode(Stop stop, Snap snap) {
+        PointList geometry = snap.getClosestEdge().fetchWayGeometry(FetchMode.ALL);
+        int end = snap.getClosestNode() == snap.getClosestEdge().getBaseNode() ? 0 : geometry.size() - 1;
+        return DistanceCalcEarth.DIST_EARTH.calcDist(stop.stop_lat, stop.stop_lon, geometry.getLat(end), geometry.getLon(end));
+    }
+
 
     void buildPtNetwork() {
         createTrips();

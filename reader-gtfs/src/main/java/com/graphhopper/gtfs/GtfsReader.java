@@ -27,6 +27,9 @@ import com.graphhopper.routing.util.EdgeFilter;
 import com.graphhopper.storage.index.InMemConstructionIndex;
 import com.graphhopper.storage.index.LocationIndex;
 import com.graphhopper.storage.index.Snap;
+import com.graphhopper.util.DistanceCalcEarth;
+import com.graphhopper.util.FetchMode;
+import com.graphhopper.util.PointList;
 import org.mapdb.Fun;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -71,6 +74,8 @@ class GtfsReader {
     }
 
     private static final Logger LOGGER = LoggerFactory.getLogger(GtfsReader.class);
+
+    static final double FAR_SNAP_METERS = 100;
 
     private final LocationIndex streetNetworkIndex;
     private final GtfsStorage gtfsStorage;
@@ -118,6 +123,7 @@ class GtfsReader {
         int unattachedStops = 0;
         int shadowedAttachments = 0;
         int droppedSecondaryAttachments = 0;
+        int farPrimarySnaps = 0;
         for (Stop stop : feed.stops.values()) {
             if (stop.location_type == 0) { // Only stops. Not interested in parent stations for now.
                 Map<String, Integer> streetNodeByProfile = new LinkedHashMap<>();
@@ -125,6 +131,15 @@ class GtfsReader {
                     Snap snap = streetNetworkIndex.findClosest(stop.stop_lat, stop.stop_lon, e.getValue());
                     if (snap.isValid()) {
                         streetNodeByProfile.put(e.getKey(), snap.getClosestNode());
+                        // log stops that snap to far-away nodes with the primary profile
+                        if (e.getKey().equals(primaryProfile)) {
+                            double metres = distanceToAttachmentNode(stop, snap);
+                            if (metres > FAR_SNAP_METERS) {
+                                farPrimarySnaps++;
+                                LOGGER.warn("Feed {}: stop {} ({}) attaches {}m from its own coordinates on the '{}' profile.",
+                                        id, stop.stop_id, stop.stop_name, (int) metres, primaryProfile);
+                            }
+                        }
                     }
                 }
 
@@ -182,7 +197,24 @@ class GtfsReader {
                     + " existing stop node already had a different one; alighting there will use the wrong"
                     + " attachment for that profile.", id, droppedSecondaryAttachments);
         }
+        if (farPrimarySnaps > 0) {
+            LOGGER.warn("Feed {}: {} stops attach to the street network more than {}m from their own"
+                    + " coordinates on the '{}' profile; see the per-stop lines above.",
+                    id, farPrimarySnaps, (int) FAR_SNAP_METERS, primaryProfile);
+        }
     }
+
+    /**
+     * Distance from the stop to {@code snap.getClosestNode()}, the tower node we actually attach to.
+     * That node is one end of the closest edge, and the edge's geometry carries both ends, so no
+     * separate node access is needed.
+     */
+    private static double distanceToAttachmentNode(Stop stop, Snap snap) {
+        PointList geometry = snap.getClosestEdge().fetchWayGeometry(FetchMode.ALL);
+        int end = snap.getClosestNode() == snap.getClosestEdge().getBaseNode() ? 0 : geometry.size() - 1;
+        return DistanceCalcEarth.DIST_EARTH.calcDist(stop.stop_lat, stop.stop_lon, geometry.getLat(end), geometry.getLon(end));
+    }
+
 
     void buildPtNetwork() {
         createTrips();

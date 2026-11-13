@@ -29,6 +29,9 @@ public class TripBasedRouter {
     private int[] tripDoneFromIndex;
     private List<ResultLabel> result = new ArrayList<>();
     private Parameters parameters;
+    // A feed's timezone comes from its agency table, a MapDB map whose cache locks on every read:
+    // resolved once per query, not once per transfer
+    private final Map<String, ZoneId> feedZones = new HashMap<>();
 
     public TripBasedRouter(GtfsStorage gtfsStorage, Trips tripTransfers) {
         this.gtfsStorage = gtfsStorage;
@@ -161,8 +164,7 @@ public class TripBasedRouter {
         List<EnqueuedTripSegment> queue1 = new ArrayList<>();
         for (EnqueuedTripSegment enqueuedTripSegment : queue0) {
             logger.debug("{}", enqueuedTripSegment);
-            GTFSFeed sourceFeed = gtfsStorage.getGtfsFeeds().get(enqueuedTripSegment.tripPointer.feedId);
-            ZoneId sourceZoneId = ZoneId.of(sourceFeed.agency.values().stream().findFirst().get().agency_timezone);
+            ZoneId sourceZoneId = feedZone(enqueuedTripSegment.tripPointer.feedId);
             int toStopSequence = Math.min(enqueuedTripSegment.toStopSequence, enqueuedTripSegment.tripPointer.stopTimes.size());
             for (int i = enqueuedTripSegment.tripAtStopTime.stop_sequence + 1; i < toStopSequence; i++) {
                 StopTime stopTime = enqueuedTripSegment.tripPointer.stopTimes.get(i);
@@ -174,8 +176,7 @@ public class TripBasedRouter {
                 Collection<Trips.TripAtStopTime> transferDestinations = gtfsStorage.tripTransfers.getTripTransfers(enqueuedTripSegment.serviceDay).get(transferOrigin);
                 for (Trips.TripAtStopTime transferDestination : transferDestinations) {
                     GTFSFeed.StopTimesForTripWithTripPatternKey destinationTripPointer = tripTransfers.getTrip(transferDestination.tripIdx);
-                    GTFSFeed destinationFeed = gtfsStorage.getGtfsFeeds().get(destinationTripPointer.feedId);
-                    ZoneId destinationZoneId = ZoneId.of(destinationFeed.agency.values().stream().findFirst().get().agency_timezone);
+                    ZoneId destinationZoneId = feedZone(destinationTripPointer.feedId);
                     StopTime transferStopTime = destinationTripPointer.stopTimes.get(transferDestination.stop_sequence);
                     LocalDateTime scheduleArrivalTime = enqueuedTripSegment.serviceDay.atStartOfDay().plusSeconds(stopTime.arrival_time);
                     int timeZoneOffset = (int) (scheduleArrivalTime.atZone(sourceZoneId).toEpochSecond() - scheduleArrivalTime.atZone(destinationZoneId).toEpochSecond());
@@ -187,6 +188,11 @@ public class TripBasedRouter {
             }
         }
         return queue1;
+    }
+
+    private ZoneId feedZone(String feedId) {
+        return feedZones.computeIfAbsent(feedId, id -> ZoneId.of(
+                gtfsStorage.getGtfsFeeds().get(id).agency.values().stream().findFirst().get().agency_timezone));
     }
 
     private void checkArrivals(List<EnqueuedTripSegment> queue0, int round) {
